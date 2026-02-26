@@ -887,6 +887,7 @@ class ClaudeAccountService {
       )
 
       // Filter Opus models based on account type and model version
+      // Note: Free account restriction removed — Team accounts may report as Free
       if (modelName && modelName.toLowerCase().includes('opus')) {
         const isNewOpus = isOpus45OrNewer(modelName)
 
@@ -895,17 +896,12 @@ class ClaudeAccountService {
             try {
               const info = JSON.parse(account.subscriptionInfo)
 
-              // Free account: does not support any Opus model
-              if (info.accountType === 'free') {
-                return false
-              }
-
               // Pro account: only supports Opus 4.5+
               if (isProAccount(info)) {
                 return isNewOpus
               }
 
-              // Max account: supports all Opus versions
+              // Max/Free/Team account: supports all Opus versions
               return true
             } catch (e) {
               // Parse failed, assume legacy data (Max), default support
@@ -1013,6 +1009,7 @@ class ClaudeAccountService {
       )
 
       // Filter Opus models based on account type and model version
+      // Note: Free account restriction removed — Team accounts may report as Free
       if (modelName && modelName.toLowerCase().includes('opus')) {
         const isNewOpus = isOpus45OrNewer(modelName)
 
@@ -1021,17 +1018,12 @@ class ClaudeAccountService {
             try {
               const info = JSON.parse(account.subscriptionInfo)
 
-              // Free account: does not support any Opus model
-              if (info.accountType === 'free') {
-                return false
-              }
-
               // Pro account: only supports Opus 4.5+
               if (isProAccount(info)) {
                 return isNewOpus
               }
 
-              // Max account: supports all Opus versions
+              // Max/Free/Team account: supports all Opus versions
               return true
             } catch (e) {
               // Parse failed, assume legacy data (Max), default support

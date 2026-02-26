@@ -66,9 +66,9 @@ class UnifiedClaudeScheduler {
 
       // 2. Opus model subscription level check
       // VERSION RESTRICTION LOGIC:
-      // - Free: No Opus models
       // - Pro: Only Opus 4.5+ (isOpus45OrNewer = true)
-      // - Max: All Opus versions
+      // - Max/Free/Team: All Opus versions
+      // Note: Free account restriction removed — Team accounts may report as Free
       if (requestedModel.toLowerCase().includes('opus')) {
         const isNewOpus = isOpus45OrNewer(requestedModel)
 
@@ -78,14 +78,6 @@ class UnifiedClaudeScheduler {
               typeof account.subscriptionInfo === 'string'
                 ? JSON.parse(account.subscriptionInfo)
                 : account.subscriptionInfo
-
-            // Free account: does not support any Opus model
-            if (info.accountType === 'free') {
-              logger.info(
-                `🚫 Claude account ${account.name} (Free) does not support Opus model${context ? ` ${context}` : ''}`
-              )
-              return false
-            }
 
             // Pro account: only supports Opus 4.5+
             // Reject legacy Opus (3.x, 4.0-4.4) but allow new Opus (4.5+)
@@ -100,7 +92,7 @@ class UnifiedClaudeScheduler {
               return true
             }
 
-            // Max account: supports all Opus versions (no restriction)
+            // Max/Free/Team account: supports all Opus versions (no restriction)
           } catch (e) {
             // Parse failed, assume legacy data (Max), default support
             logger.debug(
