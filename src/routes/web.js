@@ -39,8 +39,19 @@ router.post('/auth/login', async (req, res) => {
       if (fs.existsSync(initFilePath)) {
         try {
           const initData = JSON.parse(fs.readFileSync(initFilePath, 'utf8'))
-          const saltRounds = 10
-          const passwordHash = await bcrypt.hash(initData.adminPassword, saltRounds)
+
+          let passwordHash
+          if (initData.adminPasswordHash && initData.adminPasswordHash.startsWith('$2')) {
+            passwordHash = initData.adminPasswordHash
+          } else if (initData.adminPassword) {
+            passwordHash = await bcrypt.hash(initData.adminPassword, 10)
+          } else {
+            logger.error('❌ No admin password found in init.json')
+            return res.status(401).json({
+              error: 'Invalid credentials',
+              message: 'Invalid username or password'
+            })
+          }
 
           adminData = {
             username: initData.adminUsername,
@@ -221,9 +232,10 @@ router.post('/auth/change-password', async (req, res) => {
       const initData = JSON.parse(fs.readFileSync(initFilePath, 'utf8'))
       // const oldData = { ...initData }; // 备份旧数据
 
-      // 更新 init.json
+      // 更新 init.json（存储 bcrypt hash，不再保存明文密码）
       initData.adminUsername = updatedUsername
-      initData.adminPassword = newPassword // 保存明文密码到init.json
+      delete initData.adminPassword
+      initData.adminPasswordHash = await bcrypt.hash(newPassword, 10)
       initData.updatedAt = new Date().toISOString()
 
       // 先写入文件（如果失败则不会影响 Redis）

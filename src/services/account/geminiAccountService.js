@@ -15,6 +15,7 @@ const {
   logRefreshSkipped
 } = require('../../utils/tokenRefreshLogger')
 const tokenRefreshService = require('../tokenRefreshService')
+const config = require('../../../config/config')
 const { createEncryptor } = require('../../utils/commonHelper')
 const antigravityClient = require('../antigravityClient')
 
@@ -91,7 +92,7 @@ const keepAliveAgent = new https.Agent({
 logger.info('🌐 Gemini HTTPS Agent initialized with TCP Keep-Alive support')
 
 // 使用 commonHelper 的加密器
-const encryptor = createEncryptor('gemini-account-salt')
+const encryptor = createEncryptor(config.security?.encryptionSalts?.gemini ?? 'gemini-account-salt')
 const { encrypt, decrypt } = encryptor
 
 async function fetchAvailableModelsAntigravity(

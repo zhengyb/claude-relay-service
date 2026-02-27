@@ -52,7 +52,7 @@ class ClaudeAccountService {
 
     // 加密相关常量
     this.ENCRYPTION_ALGORITHM = 'aes-256-cbc'
-    this.ENCRYPTION_SALT = 'salt'
+    this.ENCRYPTION_SALT = config.security?.encryptionSalts?.claude ?? 'salt'
 
     // 🚀 性能优化：缓存派生的加密密钥，避免每次重复计算
     // scryptSync 是 CPU 密集型操作，缓存可以减少 95%+ 的 CPU 占用

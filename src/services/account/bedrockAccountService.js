@@ -11,7 +11,7 @@ class BedrockAccountService {
   constructor() {
     // 加密相关常量
     this.ENCRYPTION_ALGORITHM = 'aes-256-cbc'
-    this.ENCRYPTION_SALT = 'salt'
+    this.ENCRYPTION_SALT = config.security?.encryptionSalts?.bedrock ?? 'salt'
 
     // 🚀 性能优化：缓存派生的加密密钥，避免每次重复计算
     this._encryptionKeyCache = null

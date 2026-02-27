@@ -2,6 +2,7 @@ const winston = require('winston')
 const DailyRotateFile = require('winston-daily-rotate-file')
 const config = require('../../config/config')
 const { formatDateWithTimezone } = require('../utils/dateHelper')
+const { maskTokensInObject } = require('./tokenMask')
 const path = require('path')
 const fs = require('fs')
 const os = require('os')
@@ -431,8 +432,9 @@ logger.authDetail = (message, data = {}) => {
       }
     })
 
-    // 记录到专门的认证详细日志文件（完整数据）
-    authDetailLogger.info(message, { data })
+    // 记录到专门的认证详细日志文件（脱敏后的数据）
+    const maskedData = maskTokensInObject(data)
+    authDetailLogger.info(message, { data: maskedData })
   } catch (error) {
     logger.error('Failed to log auth detail:', error)
   }

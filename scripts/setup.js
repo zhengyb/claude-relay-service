@@ -3,6 +3,7 @@ const path = require('path')
 const crypto = require('crypto')
 const chalk = require('chalk')
 const ora = require('ora')
+const bcrypt = require('bcryptjs')
 
 const config = require('../config/config')
 
@@ -54,10 +55,11 @@ async function setup() {
     }
 
     // 4. 创建初始化完成标记文件
+    const adminPasswordHash = await bcrypt.hash(adminPassword, 10)
     const initData = {
       initializedAt: new Date().toISOString(),
       adminUsername,
-      adminPassword,
+      adminPasswordHash,
       version: '1.0.0'
     }
 

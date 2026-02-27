@@ -10,7 +10,7 @@ class OpenAIResponsesAccountService {
   constructor() {
     // 加密相关常量
     this.ENCRYPTION_ALGORITHM = 'aes-256-cbc'
-    this.ENCRYPTION_SALT = 'openai-responses-salt'
+    this.ENCRYPTION_SALT = config.security?.encryptionSalts?.openaiResponses ?? 'openai-responses-salt'
 
     // Redis 键前缀
     this.ACCOUNT_KEY_PREFIX = 'openai_responses_account:'

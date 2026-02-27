@@ -2,6 +2,7 @@ const { v4: uuidv4 } = require('uuid')
 const ProxyHelper = require('../../utils/proxyHelper')
 const redis = require('../../models/redis')
 const logger = require('../../utils/logger')
+const config = require('../../../config/config')
 const { createEncryptor } = require('../../utils/commonHelper')
 const upstreamErrorHelper = require('../../utils/upstreamErrorHelper')
 
@@ -12,7 +13,7 @@ class CcrAccountService {
     this.SHARED_ACCOUNTS_KEY = 'shared_ccr_accounts'
 
     // 使用 commonHelper 的加密器
-    this._encryptor = createEncryptor('ccr-account-salt')
+    this._encryptor = createEncryptor(config.security?.encryptionSalts?.ccr ?? 'ccr-account-salt')
 
     // 🧹 定期清理缓存（每10分钟）
     setInterval(

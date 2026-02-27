@@ -10,7 +10,7 @@ class GeminiApiAccountService {
   constructor() {
     // 加密相关常量
     this.ENCRYPTION_ALGORITHM = 'aes-256-cbc'
-    this.ENCRYPTION_SALT = 'gemini-api-salt'
+    this.ENCRYPTION_SALT = config.security?.encryptionSalts?.geminiApi ?? 'gemini-api-salt'
 
     // Redis 键前缀
     this.ACCOUNT_KEY_PREFIX = 'gemini_api_account:'

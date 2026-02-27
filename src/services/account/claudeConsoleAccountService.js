@@ -11,7 +11,7 @@ class ClaudeConsoleAccountService {
   constructor() {
     // 加密相关常量
     this.ENCRYPTION_ALGORITHM = 'aes-256-cbc'
-    this.ENCRYPTION_SALT = 'claude-console-salt'
+    this.ENCRYPTION_SALT = config.security?.encryptionSalts?.claudeConsole ?? 'claude-console-salt'
 
     // Redis键前缀
     this.ACCOUNT_KEY_PREFIX = 'claude_console_account:'

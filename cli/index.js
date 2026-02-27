@@ -237,10 +237,11 @@ async function createInitialAdmin() {
 
   try {
     // 1. 先更新 init.json（唯一真实数据源）
+    const adminPasswordHash = await bcrypt.hash(adminData.password, 10)
     const initData = {
       initializedAt: new Date().toISOString(),
       adminUsername: adminData.username,
-      adminPassword: adminData.password, // 保存明文密码
+      adminPasswordHash,
       version: '1.0.0',
       updatedAt: new Date().toISOString()
     }

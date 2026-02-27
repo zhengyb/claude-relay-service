@@ -15,7 +15,22 @@ const config = {
     jwtSecret: process.env.JWT_SECRET || 'CHANGE-THIS-JWT-SECRET-IN-PRODUCTION',
     adminSessionTimeout: parseInt(process.env.ADMIN_SESSION_TIMEOUT) || 86400000, // 24小时
     apiKeyPrefix: process.env.API_KEY_PREFIX || 'cr_',
-    encryptionKey: process.env.ENCRYPTION_KEY || 'CHANGE-THIS-32-CHARACTER-KEY-NOW'
+    encryptionKey: process.env.ENCRYPTION_KEY || 'CHANGE-THIS-32-CHARACTER-KEY-NOW',
+    // 加密 Salt 配置（可选，不设置则使用默认值，向后兼容现有加密数据）
+    // ⚠️ 更改 salt 后旧加密数据将无法解密，需重新加密
+    encryptionSalts: {
+      claude: process.env.CLAUDE_ENCRYPTION_SALT || 'salt',
+      bedrock: process.env.BEDROCK_ENCRYPTION_SALT || 'salt',
+      geminiApi: process.env.GEMINI_API_ENCRYPTION_SALT || 'gemini-api-salt',
+      openaiResponses: process.env.OPENAI_RESPONSES_ENCRYPTION_SALT || 'openai-responses-salt',
+      claudeConsole: process.env.CLAUDE_CONSOLE_ENCRYPTION_SALT || 'claude-console-salt',
+      azureOpenai: process.env.AZURE_OPENAI_ENCRYPTION_SALT || 'azure-openai-account-default-salt',
+      claudeRelay: process.env.CLAUDE_RELAY_ENCRYPTION_SALT || 'claude-relay-salt',
+      droid: process.env.DROID_ENCRYPTION_SALT || 'droid-account-salt',
+      gemini: process.env.GEMINI_ENCRYPTION_SALT || 'gemini-account-salt',
+      ccr: process.env.CCR_ENCRYPTION_SALT || 'ccr-account-salt',
+      openai: process.env.OPENAI_ENCRYPTION_SALT || 'openai-account-salt'
+    }
   },
 
   // 📊 Redis配置

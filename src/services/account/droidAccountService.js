@@ -3,6 +3,7 @@ const crypto = require('crypto')
 const axios = require('axios')
 const redis = require('../../models/redis')
 const logger = require('../../utils/logger')
+const config = require('../../../config/config')
 const { maskToken } = require('../../utils/tokenMask')
 const ProxyHelper = require('../../utils/proxyHelper')
 const { createEncryptor, isTruthy } = require('../../utils/commonHelper')
@@ -27,7 +28,7 @@ class DroidAccountService {
     this.tokenValidHours = 8 // Token 有效期8小时
 
     // 使用 commonHelper 的加密器
-    this._encryptor = createEncryptor('droid-account-salt')
+    this._encryptor = createEncryptor(config.security?.encryptionSalts?.droid ?? 'droid-account-salt')
 
     // 🧹 定期清理缓存（每10分钟）
     setInterval(

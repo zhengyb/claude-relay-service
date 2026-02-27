@@ -17,7 +17,7 @@ const tokenRefreshService = require('../tokenRefreshService')
 const { createEncryptor } = require('../../utils/commonHelper')
 
 // 使用 commonHelper 的加密器
-const encryptor = createEncryptor('openai-account-salt')
+const encryptor = createEncryptor(config.security?.encryptionSalts?.openai ?? 'openai-account-salt')
 const { encrypt, decrypt } = encryptor
 
 // OpenAI 账户键前缀

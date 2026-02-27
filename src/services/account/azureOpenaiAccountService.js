@@ -10,7 +10,7 @@ const ALGORITHM = 'aes-256-cbc'
 const IV_LENGTH = 16
 
 // 🚀 安全的加密密钥生成，支持动态salt
-const ENCRYPTION_SALT = config.security?.azureOpenaiSalt || 'azure-openai-account-default-salt'
+const ENCRYPTION_SALT = config.security?.encryptionSalts?.azureOpenai ?? 'azure-openai-account-default-salt'
 
 class EncryptionKeyManager {
   constructor() {

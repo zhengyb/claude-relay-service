@@ -86,7 +86,7 @@ const createEncryptor = (salt) => {
 }
 
 // 默认加密器（向后兼容）
-const defaultEncryptor = createEncryptor('claude-relay-salt')
+const defaultEncryptor = createEncryptor(config.security?.encryptionSalts?.claudeRelay ?? 'claude-relay-salt')
 const { encrypt } = defaultEncryptor
 const { decrypt } = defaultEncryptor
 const getEncryptionKey = defaultEncryptor.getKey

@@ -110,6 +110,24 @@ class Application {
       logger.info('🔄 Initializing admin credentials...')
       await this.initializeAdmin()
 
+      // 🔐 检查加密 salt 是否使用默认值
+      const defaultSaltValues = [
+        'salt',
+        'gemini-api-salt',
+        'openai-responses-salt',
+        'claude-console-salt',
+        'azure-openai-account-default-salt',
+        'claude-relay-salt',
+        'droid-account-salt',
+        'gemini-account-salt',
+        'ccr-account-salt',
+        'openai-account-salt'
+      ]
+      const salts = config.security.encryptionSalts
+      if (salts && Object.values(salts).some((s) => defaultSaltValues.includes(s))) {
+        logger.warn('⚠️ 部分加密 salt 仍使用默认值，建议通过环境变量配置自定义 salt 以提升安全性')
+      }
+
       // 🔒 安全启动：清理无效/伪造的管理员会话
       logger.info('🔒 Cleaning up invalid admin sessions...')
       await this.cleanupInvalidSessions()
@@ -486,9 +504,27 @@ class Application {
       // 从 init.json 读取管理员凭据（作为唯一真实数据源）
       const initData = JSON.parse(fs.readFileSync(initFilePath, 'utf8'))
 
-      // 将明文密码哈希化
-      const saltRounds = 10
-      const passwordHash = await bcrypt.hash(initData.adminPassword, saltRounds)
+      let passwordHash
+
+      if (initData.adminPasswordHash && initData.adminPasswordHash.startsWith('$2')) {
+        // 新格式：已是 bcrypt hash，直接使用
+        passwordHash = initData.adminPasswordHash
+      } else if (initData.adminPassword) {
+        // 旧格式：明文密码，hash 后自动迁移
+        passwordHash = await bcrypt.hash(initData.adminPassword, 10)
+        try {
+          initData.adminPasswordHash = passwordHash
+          delete initData.adminPassword
+          initData.updatedAt = new Date().toISOString()
+          fs.writeFileSync(initFilePath, JSON.stringify(initData, null, 2))
+          logger.info('🔒 已自动将 init.json 中的管理员密码从明文迁移为 bcrypt hash')
+        } catch (migrateError) {
+          logger.warn('⚠️ 无法自动迁移 init.json:', migrateError.message)
+        }
+      } else {
+        logger.warn('⚠️ init.json 中未找到管理员密码')
+        return
+      }
 
       // 存储到Redis（每次启动都覆盖，确保与 init.json 同步）
       const adminCredentials = {
