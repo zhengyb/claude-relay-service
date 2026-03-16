@@ -8,7 +8,11 @@ const unifiedClaudeScheduler = require('../services/scheduler/unifiedClaudeSched
 const apiKeyService = require('../services/apiKeyService')
 const { authenticateApiKey } = require('../middleware/auth')
 const logger = require('../utils/logger')
-const { getEffectiveModel, parseVendorPrefixedModel } = require('../utils/modelHelper')
+const {
+  getEffectiveModel,
+  parseVendorPrefixedModel,
+  isOpus45OrNewer
+} = require('../utils/modelHelper')
 const sessionHelper = require('../utils/sessionHelper')
 const { updateRateLimitCounters } = require('../utils/rateLimitHelper')
 const claudeRelayConfigService = require('../services/claudeRelayConfigService')
@@ -201,11 +205,15 @@ async function handleMessagesRequest(req, res) {
     const betaHeader = (req.headers['anthropic-beta'] || '').toLowerCase()
     if (betaHeader.includes('context-1m')) {
       const relayConfig = await claudeRelayConfigService.getConfig()
-      if (!relayConfig.allow1MContext) {
+      const requestedModel = req.body?.model || ''
+      const isOpusModel = isOpus45OrNewer(requestedModel)
+      if (!relayConfig.allow1MContext || !isOpusModel) {
         return res.status(403).json({
           error: {
             type: 'forbidden',
-            message: '暂不支持 1M 上下文窗口，请切换为非 [1m] 模型'
+            message: isOpusModel
+              ? '暂不支持 1M 上下文窗口，请切换为非 [1m] 模型'
+              : '仅 Opus 4.5+ 模型支持 1M 上下文窗口'
           }
         })
       }
