@@ -1123,7 +1123,7 @@
                     v-model="claudeConfig.modelUpdateEnabled"
                     class="peer sr-only"
                     type="checkbox"
-                    @change="saveClaudeConfig"
+                    @change="onModelUpdateEnabledChange"
                   />
                   <div
                     class="peer h-6 w-11 rounded-full bg-gray-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-blue-500 peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:border-gray-600 dark:bg-gray-700 dark:peer-focus:ring-blue-800"
@@ -1151,30 +1151,30 @@
                 <p v-else class="text-sm text-gray-400 dark:text-gray-500">
                   尚未更新，点击按钮从上游获取最新模型列表
                 </p>
-              </div>
 
-              <!-- 实时更新分割线 -->
-              <div class="mt-6 border-t border-gray-100 pt-5 dark:border-gray-700">
-                <div class="flex items-center justify-between">
-                  <div>
-                    <p class="text-sm font-medium text-gray-700 dark:text-gray-300">
-                      <i class="fas fa-bolt mr-2 text-yellow-500"></i>实时更新
-                    </p>
-                    <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                      每次客户端请求 /v1/models 时直接向上游发起请求并透传响应，优先级高于缓存模式
-                    </p>
+                <!-- 实时更新分割线 -->
+                <div class="border-t border-gray-100 pt-5 dark:border-gray-700">
+                  <div class="flex items-center justify-between">
+                    <div>
+                      <p class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                        <i class="fas fa-bolt mr-2 text-yellow-500"></i>实时更新
+                      </p>
+                      <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                        每次客户端请求 /v1/models 时直接向上游发起请求并透传响应，优先级高于缓存模式
+                      </p>
+                    </div>
+                    <label class="relative inline-flex cursor-pointer items-center">
+                      <input
+                        v-model="claudeConfig.modelRealtimeEnabled"
+                        class="peer sr-only"
+                        type="checkbox"
+                        @change="saveClaudeConfig"
+                      />
+                      <div
+                        class="peer h-6 w-11 rounded-full bg-gray-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-yellow-500 peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-yellow-300 dark:border-gray-600 dark:bg-gray-700 dark:peer-focus:ring-yellow-800"
+                      ></div>
+                    </label>
                   </div>
-                  <label class="relative inline-flex cursor-pointer items-center">
-                    <input
-                      v-model="claudeConfig.modelRealtimeEnabled"
-                      class="peer sr-only"
-                      type="checkbox"
-                      @change="saveClaudeConfig"
-                    />
-                    <div
-                      class="peer h-6 w-11 rounded-full bg-gray-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-yellow-500 peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-yellow-300 dark:border-gray-600 dark:bg-gray-700 dark:peer-focus:ring-yellow-800"
-                    ></div>
-                  </label>
                 </div>
               </div>
             </div>
@@ -2377,6 +2377,14 @@ const saveClaudeConfig = async () => {
     showToast('保存 Claude 转发配置失败', 'error')
     console.error(error)
   }
+}
+
+// 缓存模式开关变更：关闭时同步关闭实时更新
+const onModelUpdateEnabledChange = () => {
+  if (!claudeConfig.value.modelUpdateEnabled) {
+    claudeConfig.value.modelRealtimeEnabled = false
+  }
+  saveClaudeConfig()
 }
 
 // 刷新 Claude 上游模型列表
