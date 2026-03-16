@@ -1133,13 +1133,13 @@
 
               <div v-show="claudeConfig.modelUpdateEnabled" class="mt-4 space-y-3">
                 <button
-                  :disabled="modelUpdateLoading"
                   class="inline-flex items-center rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  :disabled="modelUpdateLoading"
                   @click="refreshClaudeModels"
                 >
                   <i
-                    :class="modelUpdateLoading ? 'fa-spin fa-spinner' : 'fa-sync-alt'"
                     class="fas mr-2"
+                    :class="modelUpdateLoading ? 'fa-spin fa-spinner' : 'fa-sync-alt'"
                   ></i>
                   {{ modelUpdateLoading ? '更新中...' : '更新模型列表' }}
                 </button>
