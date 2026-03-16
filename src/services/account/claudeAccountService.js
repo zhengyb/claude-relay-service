@@ -3227,17 +3227,28 @@ class ClaudeAccountService {
     }
   }
   // 🌐 从上游 Anthropic API 获取最新模型列表
-  async fetchUpstreamModels() {
+  // accountId: 指定账户时只尝试该账户（不轮询）；不传时轮询所有可用账户
+  async fetchUpstreamModels(accountId = null) {
     try {
-      const allAccounts = await redis.getAllClaudeAccounts()
-      const available = filterAvailableAccounts(allAccounts)
-      const sorted = sortAccountsByPriority(available)
+      let accounts
+      if (accountId) {
+        const account = await redis.getClaudeAccount(accountId)
+        if (!account || Object.keys(account).length === 0) {
+          logger.warn(`⚠️ fetchUpstreamModels: 账户 ${accountId} 不存在`)
+          return null
+        }
+        accounts = [{ id: accountId, ...account }]
+        logger.info(`🔄 fetchUpstreamModels: 使用指定账户 ${accountId}`)
+      } else {
+        const allAccounts = await redis.getAllClaudeAccounts()
+        const available = filterAvailableAccounts(allAccounts)
+        accounts = sortAccountsByPriority(available)
+        logger.info(
+          `🔄 fetchUpstreamModels: 轮询模式，总账户数=${allAccounts.length}，可用账户数=${available.length}`
+        )
+      }
 
-      logger.info(
-        `🔄 fetchUpstreamModels: 开始获取，总账户数=${allAccounts.length}，可用账户数=${available.length}`
-      )
-
-      for (const account of sorted) {
+      for (const account of accounts) {
         logger.info(
           `🔄 fetchUpstreamModels: 尝试账户 ${account.id} (类型=${account.type || 'claude'})`
         )
@@ -3251,6 +3262,7 @@ class ClaudeAccountService {
               'Content-Type': 'application/json',
               Accept: 'application/json',
               'anthropic-version': '2023-06-01',
+              'anthropic-beta': 'oauth-2025-04-20',
               'User-Agent': 'claude-cli/2.0.53 (external, cli)'
             },
             timeout: 15000
@@ -3292,7 +3304,7 @@ class ClaudeAccountService {
         }
       }
 
-      logger.warn('⚠️ fetchUpstreamModels: 所有可用账户均失败，无法获取上游模型列表')
+      logger.warn('⚠️ fetchUpstreamModels: 账户获取失败，无法获取上游模型列表')
       return null
     } catch (error) {
       logger.error('❌ fetchUpstreamModels error:', error)
