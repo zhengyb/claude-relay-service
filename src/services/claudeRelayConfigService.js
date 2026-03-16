@@ -8,6 +8,7 @@ const logger = require('../utils/logger')
 
 const CONFIG_KEY = 'claude_relay_config'
 const SESSION_BINDING_PREFIX = 'original_session_binding:'
+const UPSTREAM_MODELS_KEY = 'claude_upstream_models_cache'
 
 // 默认配置
 const DEFAULT_CONFIG = {
@@ -20,6 +21,8 @@ const DEFAULT_CONFIG = {
   userMessageQueueDelayMs: 200, // 请求间隔（毫秒）
   userMessageQueueTimeoutMs: 60000, // 队列等待超时（毫秒）
   userMessageQueueLockTtlMs: 120000, // 锁TTL（毫秒）
+  modelUpdateEnabled: false, // 是否启用模型更新功能（缓存模式）
+  modelRealtimeEnabled: false, // 是否启用实时更新（每次请求都从上游获取）
   // 并发请求排队配置
   concurrentRequestQueueEnabled: false, // 是否启用并发请求排队（默认关闭）
   concurrentRequestQueueMaxSize: 3, // 固定最小排队数（默认3）
@@ -439,6 +442,34 @@ class ClaudeRelayConfigService {
       logger.error('❌ Failed to get session binding stats:', error)
       return { totalBindings: 0 }
     }
+  }
+
+  /**
+   * 获取缓存的上游模型列表
+   * @returns {Promise<{models: Array, updatedAt: string}|null>}
+   */
+  async getUpstreamModels() {
+    try {
+      const client = redis.getClient()
+      if (!client) return null
+      const data = await client.get(UPSTREAM_MODELS_KEY)
+      return data ? JSON.parse(data) : null
+    } catch (error) {
+      logger.error('❌ Failed to get upstream models cache:', error)
+      return null
+    }
+  }
+
+  /**
+   * 存储上游模型列表
+   * @param {Array} models - 模型列表
+   * @returns {Promise<{models: Array, updatedAt: string}>}
+   */
+  async setUpstreamModels(models) {
+    const client = redis.getClientSafe()
+    const payload = { models, updatedAt: new Date().toISOString() }
+    await client.set(UPSTREAM_MODELS_KEY, JSON.stringify(payload))
+    return payload
   }
 
   /**

@@ -330,6 +330,8 @@ export const getClaudeRelayConfigApi = (config) =>
   request({ url: '/admin/claude-relay-config', method: 'GET', ...config })
 export const updateClaudeRelayConfigApi = (data, config) =>
   request({ url: '/admin/claude-relay-config', method: 'PUT', data, ...config })
+export const refreshClaudeModelsApi = (config) =>
+  request({ url: '/admin/claude-relay-config/refresh-models', method: 'POST', ...config })
 
 // 服务倍率配置（管理端）
 export const getAdminServiceRatesApi = (config) =>

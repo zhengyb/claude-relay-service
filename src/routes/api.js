@@ -1461,7 +1461,32 @@ router.get('/v1/models', authenticateApiKey, async (req, res) => {
     const modelService = require('../services/modelService')
 
     // 从 modelService 获取所有支持的模型
-    const models = modelService.getAllModels()
+    let models = modelService.getAllModels()
+
+    // 检查是否启用模型更新功能
+    const relayConfig = await claudeRelayConfigService.getConfig()
+    let upstreamModels = null
+
+    if (relayConfig.modelRealtimeEnabled) {
+      // 实时模式：每次请求都从上游获取
+      const result = await claudeAccountService.fetchUpstreamModels()
+      if (result?.models?.length > 0) {
+        upstreamModels = result.models
+      }
+    }
+
+    if (!upstreamModels && relayConfig.modelUpdateEnabled) {
+      // 缓存模式：使用上次手动更新的缓存
+      const upstreamCache = await claudeRelayConfigService.getUpstreamModels()
+      if (upstreamCache?.models?.length > 0) {
+        upstreamModels = upstreamCache.models
+      }
+    }
+
+    if (upstreamModels) {
+      const nonClaudeModels = models.filter((m) => m.owned_by !== 'anthropic')
+      models = [...upstreamModels, ...nonClaudeModels]
+    }
 
     // 可选：根据 API Key 的模型限制过滤
     let filteredModels = models

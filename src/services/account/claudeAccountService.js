@@ -18,6 +18,7 @@ const tokenRefreshService = require('../tokenRefreshService')
 const LRUCache = require('../../utils/lruCache')
 const { formatDateWithTimezone, getISOStringWithTimezone } = require('../../utils/dateHelper')
 const { isOpus45OrNewer } = require('../../utils/modelHelper')
+const { filterAvailableAccounts, sortAccountsByPriority } = require('../../utils/commonHelper')
 
 /**
  * Check if account is Pro (not Max)
@@ -3223,6 +3224,64 @@ class ClaudeAccountService {
         `❌ 无法在 ${context} 阶段为账号 ${accountId} 删除字段 [${filteredFields.join(', ')}]:`,
         error
       )
+    }
+  }
+  // 🌐 从上游 Anthropic API 获取最新模型列表
+  async fetchUpstreamModels() {
+    try {
+      const allAccounts = await redis.getAllClaudeAccounts()
+      const available = filterAvailableAccounts(allAccounts)
+      const sorted = sortAccountsByPriority(available)
+
+      for (const account of sorted) {
+        try {
+          const accessToken = await this.getValidAccessToken(account.id)
+          const agent = this._createProxyAgent(account.proxy)
+
+          const axiosConfig = {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+              Accept: 'application/json',
+              'anthropic-version': '2023-06-01',
+              'User-Agent': 'claude-cli/2.0.53 (external, cli)'
+            },
+            timeout: 15000
+          }
+
+          if (agent) {
+            axiosConfig.httpAgent = agent
+            axiosConfig.httpsAgent = agent
+            axiosConfig.proxy = false
+          }
+
+          const response = await axios.get('https://api.anthropic.com/v1/models', axiosConfig)
+
+          if (response.status === 200 && response.data?.data?.length > 0) {
+            const models = response.data.data.map((item) => ({
+              id: item.id,
+              object: 'model',
+              created: item.created_at
+                ? Math.floor(new Date(item.created_at).getTime() / 1000)
+                : Math.floor(Date.now() / 1000),
+              owned_by: 'anthropic'
+            }))
+
+            logger.info(`✅ Fetched ${models.length} upstream models via account ${account.id}`)
+            return { models, accountId: account.id }
+          }
+        } catch (error) {
+          logger.warn(
+            `⚠️ Failed to fetch upstream models via account ${account.id}: ${error.message}`
+          )
+        }
+      }
+
+      logger.warn('⚠️ All accounts failed to fetch upstream models')
+      return null
+    } catch (error) {
+      logger.error('❌ fetchUpstreamModels error:', error)
+      return null
     }
   }
 }

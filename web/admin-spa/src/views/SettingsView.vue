@@ -1098,6 +1098,87 @@
               </div>
             </div>
 
+            <!-- 模型列表更新 -->
+            <div
+              class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800"
+            >
+              <div class="flex items-center justify-between">
+                <div class="flex items-center">
+                  <div
+                    class="flex h-12 w-12 items-center justify-center rounded-lg bg-gradient-to-r from-violet-500 to-purple-500 text-white shadow-lg"
+                  >
+                    <i class="fas fa-sync-alt text-xl"></i>
+                  </div>
+                  <div class="ml-4">
+                    <h4 class="text-lg font-semibold text-gray-900 dark:text-white">
+                      模型列表更新
+                    </h4>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">
+                      启用后，/v1/models 将优先返回从上游实时获取的模型列表
+                    </p>
+                  </div>
+                </div>
+                <label class="relative inline-flex cursor-pointer items-center">
+                  <input
+                    v-model="claudeConfig.modelUpdateEnabled"
+                    class="peer sr-only"
+                    type="checkbox"
+                    @change="saveClaudeConfig"
+                  />
+                  <div
+                    class="peer h-6 w-11 rounded-full bg-gray-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-blue-500 peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:border-gray-600 dark:bg-gray-700 dark:peer-focus:ring-blue-800"
+                  ></div>
+                </label>
+              </div>
+
+              <div v-show="claudeConfig.modelUpdateEnabled" class="mt-4 space-y-3">
+                <button
+                  :disabled="modelUpdateLoading"
+                  class="inline-flex items-center rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  @click="refreshClaudeModels"
+                >
+                  <i
+                    :class="modelUpdateLoading ? 'fa-spin fa-spinner' : 'fa-sync-alt'"
+                    class="fas mr-2"
+                  ></i>
+                  {{ modelUpdateLoading ? '更新中...' : '更新模型列表' }}
+                </button>
+                <p v-if="modelUpdateResult" class="text-sm text-gray-500 dark:text-gray-400">
+                  <i class="fas fa-check-circle mr-1 text-green-500"></i>
+                  上次更新：{{ formatDateTime(modelUpdateResult.updatedAt) }}，共
+                  {{ modelUpdateResult.modelCount }} 个模型
+                </p>
+                <p v-else class="text-sm text-gray-400 dark:text-gray-500">
+                  尚未更新，点击按钮从上游获取最新模型列表
+                </p>
+              </div>
+
+              <!-- 实时更新分割线 -->
+              <div class="mt-6 border-t border-gray-100 pt-5 dark:border-gray-700">
+                <div class="flex items-center justify-between">
+                  <div>
+                    <p class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                      <i class="fas fa-bolt mr-2 text-yellow-500"></i>实时更新
+                    </p>
+                    <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                      每次客户端请求 /v1/models 时直接向上游发起请求并透传响应，优先级高于缓存模式
+                    </p>
+                  </div>
+                  <label class="relative inline-flex cursor-pointer items-center">
+                    <input
+                      v-model="claudeConfig.modelRealtimeEnabled"
+                      class="peer sr-only"
+                      type="checkbox"
+                      @change="saveClaudeConfig"
+                    />
+                    <div
+                      class="peer h-6 w-11 rounded-full bg-gray-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-yellow-500 peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-yellow-300 dark:border-gray-600 dark:bg-gray-700 dark:peer-focus:ring-yellow-800"
+                    ></div>
+                  </label>
+                </div>
+              </div>
+            </div>
+
             <!-- 配置更新信息 -->
             <div
               v-if="claudeConfig.updatedAt"
@@ -1930,9 +2011,13 @@ const claudeConfig = ref({
   concurrentRequestQueueMaxSize: 3,
   concurrentRequestQueueMaxSizeMultiplier: 0,
   concurrentRequestQueueTimeoutMs: 10000,
+  modelUpdateEnabled: false,
+  modelRealtimeEnabled: false,
   updatedAt: null,
   updatedBy: null
 })
+const modelUpdateLoading = ref(false)
+const modelUpdateResult = ref(null)
 
 // 服务倍率配置
 const serviceRatesLoading = ref(false)
@@ -2230,8 +2315,16 @@ const loadClaudeConfig = async () => {
         concurrentRequestQueueMaxSizeMultiplier:
           response.config?.concurrentRequestQueueMaxSizeMultiplier ?? 0,
         concurrentRequestQueueTimeoutMs: response.config?.concurrentRequestQueueTimeoutMs ?? 10000,
+        modelUpdateEnabled: response.config?.modelUpdateEnabled ?? false,
+        modelRealtimeEnabled: response.config?.modelRealtimeEnabled ?? false,
         updatedAt: response.config?.updatedAt || null,
         updatedBy: response.config?.updatedBy || null
+      }
+      if (response.upstreamModelsInfo) {
+        modelUpdateResult.value = {
+          updatedAt: response.upstreamModelsInfo.updatedAt,
+          modelCount: response.upstreamModelsInfo.modelCount
+        }
       }
     }
   } catch (error) {
@@ -2262,7 +2355,9 @@ const saveClaudeConfig = async () => {
       concurrentRequestQueueMaxSize: claudeConfig.value.concurrentRequestQueueMaxSize,
       concurrentRequestQueueMaxSizeMultiplier:
         claudeConfig.value.concurrentRequestQueueMaxSizeMultiplier,
-      concurrentRequestQueueTimeoutMs: claudeConfig.value.concurrentRequestQueueTimeoutMs
+      concurrentRequestQueueTimeoutMs: claudeConfig.value.concurrentRequestQueueTimeoutMs,
+      modelUpdateEnabled: claudeConfig.value.modelUpdateEnabled,
+      modelRealtimeEnabled: claudeConfig.value.modelRealtimeEnabled
     }
 
     const response = await httpApis.updateClaudeRelayConfigApi(payload, {
@@ -2281,6 +2376,29 @@ const saveClaudeConfig = async () => {
     if (!isMounted.value) return
     showToast('保存 Claude 转发配置失败', 'error')
     console.error(error)
+  }
+}
+
+// 刷新 Claude 上游模型列表
+const refreshClaudeModels = async () => {
+  if (!isMounted.value) return
+  modelUpdateLoading.value = true
+  try {
+    const res = await httpApis.refreshClaudeModelsApi({
+      signal: abortController.value.signal
+    })
+    if (res.success) {
+      modelUpdateResult.value = { updatedAt: res.updatedAt, modelCount: res.models.length }
+      showToast('模型列表更新成功', 'success')
+    }
+  } catch (e) {
+    if (e.name === 'AbortError') return
+    if (!isMounted.value) return
+    showToast('更新失败：' + (e.response?.data?.error || e.message), 'error')
+  } finally {
+    if (isMounted.value) {
+      modelUpdateLoading.value = false
+    }
   }
 }
 

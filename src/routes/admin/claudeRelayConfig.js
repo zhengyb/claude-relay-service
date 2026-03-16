@@ -6,6 +6,7 @@
 const express = require('express')
 const { authenticateAdmin } = require('../../middleware/auth')
 const claudeRelayConfigService = require('../../services/claudeRelayConfigService')
+const claudeAccountService = require('../../services/account/claudeAccountService')
 const logger = require('../../utils/logger')
 
 const router = express.Router()
@@ -17,9 +18,14 @@ const router = express.Router()
 router.get('/claude-relay-config', authenticateAdmin, async (req, res) => {
   try {
     const config = await claudeRelayConfigService.getConfig()
+    const upstreamCache = await claudeRelayConfigService.getUpstreamModels()
+    const upstreamModelsInfo = upstreamCache
+      ? { updatedAt: upstreamCache.updatedAt, modelCount: upstreamCache.models?.length || 0 }
+      : null
     return res.json({
       success: true,
-      config
+      config,
+      upstreamModelsInfo
     })
   } catch (error) {
     logger.error('❌ Failed to get Claude relay config:', error)
@@ -47,7 +53,9 @@ router.put('/claude-relay-config', authenticateAdmin, async (req, res) => {
       concurrentRequestQueueEnabled,
       concurrentRequestQueueMaxSize,
       concurrentRequestQueueMaxSizeMultiplier,
-      concurrentRequestQueueTimeoutMs
+      concurrentRequestQueueTimeoutMs,
+      modelUpdateEnabled,
+      modelRealtimeEnabled
     } = req.body
 
     // 验证输入
@@ -162,6 +170,14 @@ router.put('/claude-relay-config', authenticateAdmin, async (req, res) => {
       }
     }
 
+    if (modelUpdateEnabled !== undefined && typeof modelUpdateEnabled !== 'boolean') {
+      return res.status(400).json({ error: 'modelUpdateEnabled must be a boolean' })
+    }
+
+    if (modelRealtimeEnabled !== undefined && typeof modelRealtimeEnabled !== 'boolean') {
+      return res.status(400).json({ error: 'modelRealtimeEnabled must be a boolean' })
+    }
+
     const updateData = {}
     if (claudeCodeOnlyEnabled !== undefined) {
       updateData.claudeCodeOnlyEnabled = claudeCodeOnlyEnabled
@@ -196,6 +212,12 @@ router.put('/claude-relay-config', authenticateAdmin, async (req, res) => {
     if (concurrentRequestQueueTimeoutMs !== undefined) {
       updateData.concurrentRequestQueueTimeoutMs = concurrentRequestQueueTimeoutMs
     }
+    if (modelUpdateEnabled !== undefined) {
+      updateData.modelUpdateEnabled = modelUpdateEnabled
+    }
+    if (modelRealtimeEnabled !== undefined) {
+      updateData.modelRealtimeEnabled = modelRealtimeEnabled
+    }
 
     const updatedConfig = await claudeRelayConfigService.updateConfig(
       updateData,
@@ -211,6 +233,37 @@ router.put('/claude-relay-config', authenticateAdmin, async (req, res) => {
     logger.error('❌ Failed to update Claude relay config:', error)
     return res.status(500).json({
       error: 'Failed to update configuration',
+      message: error.message
+    })
+  }
+})
+
+/**
+ * POST /admin/claude-relay-config/refresh-models
+ * 从上游 Anthropic API 刷新模型列表缓存
+ */
+router.post('/claude-relay-config/refresh-models', authenticateAdmin, async (req, res) => {
+  try {
+    const result = await claudeAccountService.fetchUpstreamModels()
+    if (!result) {
+      const cached = await claudeRelayConfigService.getUpstreamModels()
+      return res.status(502).json({
+        success: false,
+        error: '所有上游账户调用失败',
+        lastCache: cached
+      })
+    }
+    const saved = await claudeRelayConfigService.setUpstreamModels(result.models)
+    return res.json({
+      success: true,
+      models: result.models,
+      updatedAt: saved.updatedAt,
+      usedAccountId: result.accountId
+    })
+  } catch (error) {
+    logger.error('❌ Failed to refresh upstream models:', error)
+    return res.status(500).json({
+      error: 'Failed to refresh models',
       message: error.message
     })
   }
