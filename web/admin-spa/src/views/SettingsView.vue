@@ -1179,6 +1179,44 @@
               </div>
             </div>
 
+            <!-- 支持 1M 上下文 -->
+            <div
+              class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800"
+            >
+              <div class="flex items-center justify-between">
+                <div class="flex items-center">
+                  <div
+                    class="flex h-12 w-12 items-center justify-center rounded-lg bg-gradient-to-r from-green-500 to-emerald-500 text-white shadow-lg"
+                  >
+                    <i class="fas fa-expand-alt text-xl"></i>
+                  </div>
+                  <div class="ml-4">
+                    <h4 class="text-lg font-semibold text-gray-900 dark:text-white">
+                      支持 1M 上下文
+                    </h4>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">
+                      启用后，允许携带
+                      <code class="rounded bg-gray-100 px-1 dark:bg-gray-700"
+                        >anthropic-beta: context-1m</code
+                      >
+                      头的请求转发至上游（适用于 Opus 4.6 等原生支持 1M 上下文的模型）
+                    </p>
+                  </div>
+                </div>
+                <label class="relative inline-flex cursor-pointer items-center">
+                  <input
+                    v-model="claudeConfig.allow1MContext"
+                    class="peer sr-only"
+                    type="checkbox"
+                    @change="saveClaudeConfig"
+                  />
+                  <div
+                    class="peer h-6 w-11 rounded-full bg-gray-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-green-500 peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-green-300 dark:border-gray-600 dark:bg-gray-700 dark:peer-focus:ring-green-800"
+                  ></div>
+                </label>
+              </div>
+            </div>
+
             <!-- 配置更新信息 -->
             <div
               v-if="claudeConfig.updatedAt"
@@ -2013,6 +2051,7 @@ const claudeConfig = ref({
   concurrentRequestQueueTimeoutMs: 10000,
   modelUpdateEnabled: false,
   modelRealtimeEnabled: false,
+  allow1MContext: false,
   updatedAt: null,
   updatedBy: null
 })
@@ -2317,6 +2356,7 @@ const loadClaudeConfig = async () => {
         concurrentRequestQueueTimeoutMs: response.config?.concurrentRequestQueueTimeoutMs ?? 10000,
         modelUpdateEnabled: response.config?.modelUpdateEnabled ?? false,
         modelRealtimeEnabled: response.config?.modelRealtimeEnabled ?? false,
+        allow1MContext: response.config?.allow1MContext ?? false,
         updatedAt: response.config?.updatedAt || null,
         updatedBy: response.config?.updatedBy || null
       }
@@ -2357,7 +2397,8 @@ const saveClaudeConfig = async () => {
         claudeConfig.value.concurrentRequestQueueMaxSizeMultiplier,
       concurrentRequestQueueTimeoutMs: claudeConfig.value.concurrentRequestQueueTimeoutMs,
       modelUpdateEnabled: claudeConfig.value.modelUpdateEnabled,
-      modelRealtimeEnabled: claudeConfig.value.modelRealtimeEnabled
+      modelRealtimeEnabled: claudeConfig.value.modelRealtimeEnabled,
+      allow1MContext: claudeConfig.value.allow1MContext
     }
 
     const response = await httpApis.updateClaudeRelayConfigApi(payload, {

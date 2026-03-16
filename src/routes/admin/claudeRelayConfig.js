@@ -55,7 +55,8 @@ router.put('/claude-relay-config', authenticateAdmin, async (req, res) => {
       concurrentRequestQueueMaxSizeMultiplier,
       concurrentRequestQueueTimeoutMs,
       modelUpdateEnabled,
-      modelRealtimeEnabled
+      modelRealtimeEnabled,
+      allow1MContext
     } = req.body
 
     // 验证输入
@@ -178,6 +179,10 @@ router.put('/claude-relay-config', authenticateAdmin, async (req, res) => {
       return res.status(400).json({ error: 'modelRealtimeEnabled must be a boolean' })
     }
 
+    if (allow1MContext !== undefined && typeof allow1MContext !== 'boolean') {
+      return res.status(400).json({ error: 'allow1MContext must be a boolean' })
+    }
+
     const updateData = {}
     if (claudeCodeOnlyEnabled !== undefined) {
       updateData.claudeCodeOnlyEnabled = claudeCodeOnlyEnabled
@@ -217,6 +222,9 @@ router.put('/claude-relay-config', authenticateAdmin, async (req, res) => {
     }
     if (modelRealtimeEnabled !== undefined) {
       updateData.modelRealtimeEnabled = modelRealtimeEnabled
+    }
+    if (allow1MContext !== undefined) {
+      updateData.allow1MContext = allow1MContext
     }
 
     const updatedConfig = await claudeRelayConfigService.updateConfig(

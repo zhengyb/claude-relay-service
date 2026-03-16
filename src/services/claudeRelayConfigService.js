@@ -23,6 +23,7 @@ const DEFAULT_CONFIG = {
   userMessageQueueLockTtlMs: 120000, // 锁TTL（毫秒）
   modelUpdateEnabled: false, // 是否启用模型更新功能（缓存模式）
   modelRealtimeEnabled: false, // 是否启用实时更新（每次请求都从上游获取）
+  allow1MContext: false, // 是否允许 1M 上下文窗口请求通过（默认禁止）
   // 并发请求排队配置
   concurrentRequestQueueEnabled: false, // 是否启用并发请求排队（默认关闭）
   concurrentRequestQueueMaxSize: 3, // 固定最小排队数（默认3）
@@ -451,7 +452,9 @@ class ClaudeRelayConfigService {
   async getUpstreamModels() {
     try {
       const client = redis.getClient()
-      if (!client) return null
+      if (!client) {
+        return null
+      }
       const data = await client.get(UPSTREAM_MODELS_KEY)
       if (!data) {
         logger.info('ℹ️ getUpstreamModels: 缓存为空，尚未写入过上游模型列表')
