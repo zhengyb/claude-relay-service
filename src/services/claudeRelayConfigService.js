@@ -453,9 +453,17 @@ class ClaudeRelayConfigService {
       const client = redis.getClient()
       if (!client) return null
       const data = await client.get(UPSTREAM_MODELS_KEY)
-      return data ? JSON.parse(data) : null
+      if (!data) {
+        logger.info('ℹ️ getUpstreamModels: 缓存为空，尚未写入过上游模型列表')
+        return null
+      }
+      const parsed = JSON.parse(data)
+      logger.info(
+        `ℹ️ getUpstreamModels: 命中缓存，${parsed.models?.length ?? 0} 个模型，更新时间=${parsed.updatedAt}`
+      )
+      return parsed
     } catch (error) {
-      logger.error('❌ Failed to get upstream models cache:', error)
+      logger.error('❌ getUpstreamModels: 读取缓存失败:', error)
       return null
     }
   }
@@ -469,6 +477,8 @@ class ClaudeRelayConfigService {
     const client = redis.getClientSafe()
     const payload = { models, updatedAt: new Date().toISOString() }
     await client.set(UPSTREAM_MODELS_KEY, JSON.stringify(payload))
+    const modelIds = models.map((m) => m.id)
+    logger.info(`💾 setUpstreamModels: 已缓存 ${models.length} 个模型: [${modelIds.join(', ')}]`)
     return payload
   }
 

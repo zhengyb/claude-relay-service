@@ -1469,17 +1469,27 @@ router.get('/v1/models', authenticateApiKey, async (req, res) => {
 
     if (relayConfig.modelRealtimeEnabled) {
       // 实时模式：每次请求都从上游获取
+      logger.info('🔄 模型列表：实时模式，正在从上游拉取...')
       const result = await claudeAccountService.fetchUpstreamModels()
       if (result?.models?.length > 0) {
         upstreamModels = result.models
+        logger.info(`✅ 模型列表：实时模式，获取到 ${upstreamModels.length} 个上游模型`)
+      } else {
+        logger.warn('⚠️ 模型列表：实时模式，上游获取失败，将回退到本地模型列表')
       }
     }
 
     if (!upstreamModels && relayConfig.modelUpdateEnabled) {
       // 缓存模式：使用上次手动更新的缓存
+      logger.info('🔄 模型列表：缓存模式，正在读取缓存...')
       const upstreamCache = await claudeRelayConfigService.getUpstreamModels()
       if (upstreamCache?.models?.length > 0) {
         upstreamModels = upstreamCache.models
+        logger.info(
+          `✅ 模型列表：缓存模式，命中 ${upstreamModels.length} 个模型，缓存时间=${upstreamCache.updatedAt}`
+        )
+      } else {
+        logger.warn('⚠️ 模型列表：缓存模式，缓存为空，将回退到本地模型列表')
       }
     }
 

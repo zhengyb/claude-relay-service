@@ -243,9 +243,11 @@ router.put('/claude-relay-config', authenticateAdmin, async (req, res) => {
  * 从上游 Anthropic API 刷新模型列表缓存
  */
 router.post('/claude-relay-config/refresh-models', authenticateAdmin, async (req, res) => {
+  logger.info('🔄 [Admin] 手动触发上游模型列表刷新')
   try {
     const result = await claudeAccountService.fetchUpstreamModels()
     if (!result) {
+      logger.warn('⚠️ [Admin] 上游模型刷新失败，所有账户均不可用，返回已有缓存')
       const cached = await claudeRelayConfigService.getUpstreamModels()
       return res.status(502).json({
         success: false,
@@ -254,6 +256,9 @@ router.post('/claude-relay-config/refresh-models', authenticateAdmin, async (req
       })
     }
     const saved = await claudeRelayConfigService.setUpstreamModels(result.models)
+    logger.info(
+      `✅ [Admin] 上游模型刷新成功，账户=${result.accountId}，模型数=${result.models.length}，写入时间=${saved.updatedAt}`
+    )
     return res.json({
       success: true,
       models: result.models,
@@ -261,7 +266,7 @@ router.post('/claude-relay-config/refresh-models', authenticateAdmin, async (req
       usedAccountId: result.accountId
     })
   } catch (error) {
-    logger.error('❌ Failed to refresh upstream models:', error)
+    logger.error('❌ [Admin] 上游模型刷新异常:', error)
     return res.status(500).json({
       error: 'Failed to refresh models',
       message: error.message

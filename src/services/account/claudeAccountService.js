@@ -3233,7 +3233,14 @@ class ClaudeAccountService {
       const available = filterAvailableAccounts(allAccounts)
       const sorted = sortAccountsByPriority(available)
 
+      logger.info(
+        `🔄 fetchUpstreamModels: 开始获取，总账户数=${allAccounts.length}，可用账户数=${available.length}`
+      )
+
       for (const account of sorted) {
+        logger.info(
+          `🔄 fetchUpstreamModels: 尝试账户 ${account.id} (类型=${account.type || 'claude'})`
+        )
         try {
           const accessToken = await this.getValidAccessToken(account.id)
           const agent = this._createProxyAgent(account.proxy)
@@ -3267,17 +3274,25 @@ class ClaudeAccountService {
               owned_by: 'anthropic'
             }))
 
-            logger.info(`✅ Fetched ${models.length} upstream models via account ${account.id}`)
+            const modelIds = models.map((m) => m.id)
+            logger.info(
+              `✅ fetchUpstreamModels: 成功，账户=${account.id}，获取到 ${models.length} 个模型: [${modelIds.join(', ')}]`
+            )
             return { models, accountId: account.id }
+          } else {
+            logger.warn(
+              `⚠️ fetchUpstreamModels: 账户 ${account.id} 返回异常，status=${response.status}，data.length=${response.data?.data?.length ?? 0}`
+            )
           }
         } catch (error) {
           logger.warn(
-            `⚠️ Failed to fetch upstream models via account ${account.id}: ${error.message}`
+            `⚠️ fetchUpstreamModels: 账户 ${account.id} 失败: ${error.message}` +
+              (error.response ? `，HTTP ${error.response.status}` : '')
           )
         }
       }
 
-      logger.warn('⚠️ All accounts failed to fetch upstream models')
+      logger.warn('⚠️ fetchUpstreamModels: 所有可用账户均失败，无法获取上游模型列表')
       return null
     } catch (error) {
       logger.error('❌ fetchUpstreamModels error:', error)
