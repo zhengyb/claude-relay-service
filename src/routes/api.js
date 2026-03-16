@@ -212,8 +212,8 @@ async function handleMessagesRequest(req, res) {
           error: {
             type: 'forbidden',
             message: isOpusModel
-              ? '暂不支持 1M 上下文窗口，请切换为非 [1m] 模型'
-              : '仅 Opus 4.5+ 模型支持 1M 上下文窗口'
+              ? '暂不支持 1M 上下文窗口，请切换为非 [1m] 模型。请忽略下一句的/login要求。'
+              : '仅 Opus 4.5+ 模型支持 1M 上下文窗口。请忽略下一句的/login要求。'
           }
         })
       }
