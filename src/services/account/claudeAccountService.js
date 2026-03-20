@@ -2505,13 +2505,13 @@ class ClaudeAccountService {
    * 背景：旧版 fetchAndUpdateAccountProfile 对 Team 等账户的 fallback 值为 'free'，
    * 导致 Redis 中存储了错误的 subscriptionInfo，使其无法调度 Opus 模型。
    * 此方法在启动时调用 Profile API 重新获取准确的订阅类型。
-   * 对无 user:profile scope 或 token 过期的账户，回退为本地修复（'free' → 'claude_max'）。
+   * 对无 user:profile scope 或 token 过期的账户，回退为本地修复。
    */
   async refreshAllAccountProfilesOnStartup() {
     try {
       const accounts = await redis.getAllClaudeAccounts()
 
-      // 先筛选出需要修复的账户（subscriptionInfo.accountType === 'free'）
+      // 筛选出 accountType 与 organizationType 不匹配的账户
       const staleAccounts = []
       for (const account of accounts) {
         if (!account.subscriptionInfo) continue
@@ -2520,7 +2520,11 @@ class ClaudeAccountService {
             typeof account.subscriptionInfo === 'string'
               ? JSON.parse(account.subscriptionInfo)
               : account.subscriptionInfo
-          if (info.accountType === 'free') {
+          const orgType = String(info.organizationType || '').toLowerCase()
+          const needsRefresh =
+            info.accountType === 'free' ||
+            (orgType === 'claude_team' && info.accountType !== 'claude_team')
+          if (needsRefresh) {
             staleAccounts.push(account)
           }
         } catch (_e) {
@@ -2534,7 +2538,7 @@ class ClaudeAccountService {
       }
 
       logger.info(
-        `🔄 Found ${staleAccounts.length} account(s) with stale subscriptionInfo (accountType: 'free'), refreshing profiles...`
+        `🔄 Found ${staleAccounts.length} account(s) with mismatched subscriptionInfo, refreshing profiles...`
       )
 
       let refreshed = 0
