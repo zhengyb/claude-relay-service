@@ -2255,6 +2255,12 @@ class ClaudeAccountService {
       if (response.status === 200 && response.data) {
         const profileData = response.data
 
+        // 完整响应写入 auth-detail 日志，便于分析 Team 等账户的 profile 结构
+        logger.authDetail(
+          `Profile API response for ${accountData.name} (${accountId})`,
+          profileData
+        )
+
         logger.info('✅ Successfully fetched profile data:', {
           email: profileData.account?.email,
           hasClaudeMax: profileData.account?.has_claude_max,
@@ -2477,6 +2483,96 @@ class ClaudeAccountService {
         noWindows: 0,
         error: error.message
       }
+    }
+  }
+
+  /**
+   * 启动时批量刷新所有 Claude 账户的 Profile 信息。
+   * 背景：旧版 fetchAndUpdateAccountProfile 对 Team 等账户的 fallback 值为 'free'，
+   * 导致 Redis 中存储了错误的 subscriptionInfo，使其无法调度 Opus 模型。
+   * 此方法在启动时调用 Profile API 重新获取准确的订阅类型。
+   * 对无 user:profile scope 或 token 过期的账户，回退为本地修复（'free' → 'claude_max'）。
+   */
+  async refreshAllAccountProfilesOnStartup() {
+    try {
+      const accounts = await redis.getAllClaudeAccounts()
+
+      // 先筛选出需要修复的账户（subscriptionInfo.accountType === 'free'）
+      const staleAccounts = []
+      for (const account of accounts) {
+        if (!account.subscriptionInfo) continue
+        try {
+          const info =
+            typeof account.subscriptionInfo === 'string'
+              ? JSON.parse(account.subscriptionInfo)
+              : account.subscriptionInfo
+          if (info.accountType === 'free') {
+            staleAccounts.push(account)
+          }
+        } catch (_e) {
+          // JSON parse 失败，跳过
+        }
+      }
+
+      if (staleAccounts.length === 0) {
+        logger.info('✅ No stale subscriptionInfo found, all accounts OK')
+        return { total: 0, refreshed: 0, localFixed: 0, failed: 0 }
+      }
+
+      logger.info(
+        `🔄 Found ${staleAccounts.length} account(s) with stale subscriptionInfo (accountType: 'free'), refreshing profiles...`
+      )
+
+      let refreshed = 0
+      let localFixed = 0
+      let failed = 0
+
+      for (const account of staleAccounts) {
+        const hasProfileScope = account.scopes && account.scopes.includes('user:profile')
+
+        if (hasProfileScope) {
+          try {
+            const accessToken = await this.getValidAccessToken(account.id)
+            if (accessToken) {
+              const profileInfo = await this.fetchAndUpdateAccountProfile(account.id, accessToken)
+              refreshed++
+              logger.info(
+                `✅ Refreshed profile for ${account.name} (${account.id}): accountType → ${profileInfo.accountType}`
+              )
+              // 避免触发上游限流
+              await new Promise((resolve) => setTimeout(resolve, 500))
+              continue
+            }
+          } catch (error) {
+            logger.warn(
+              `⚠️ Profile API refresh failed for ${account.name} (${account.id}): ${error.message}, falling back to local fix`
+            )
+          }
+        }
+
+        // 回退：无 scope / token 失效 / API 调用失败 → 本地修复
+        try {
+          const info = JSON.parse(account.subscriptionInfo)
+          info.accountType = 'claude_max'
+          info.hasClaudeMax = true
+          info.repairedAt = new Date().toISOString()
+          account.subscriptionInfo = JSON.stringify(info)
+          await redis.setClaudeAccount(account.id, account)
+          localFixed++
+          logger.info(`🔧 Local fix for ${account.name} (${account.id}): 'free' → 'claude_max'`)
+        } catch (_e) {
+          failed++
+        }
+      }
+
+      logger.success(
+        `Startup profile refresh completed: ${refreshed} refreshed via API, ${localFixed} fixed locally, ${failed} failed (total ${staleAccounts.length})`
+      )
+
+      return { total: staleAccounts.length, refreshed, localFixed, failed }
+    } catch (error) {
+      logger.error('❌ Failed to refresh account profiles on startup:', error)
+      return { total: 0, refreshed: 0, localFixed: 0, failed: 0 }
     }
   }
 

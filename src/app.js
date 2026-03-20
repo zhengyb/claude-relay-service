@@ -140,6 +140,11 @@ class Application {
       const claudeAccountService = require('./services/account/claudeAccountService')
       await claudeAccountService.initializeSessionWindows()
 
+      // 🔄 启动时批量刷新被错误标记为 'free' 的账户 Profile（后台执行，不阻塞启动）
+      claudeAccountService.refreshAllAccountProfilesOnStartup().catch((err) => {
+        logger.warn('⚠️ Startup profile refresh failed (non-blocking):', err.message)
+      })
+
       // 📊 初始化费用排序索引服务
       logger.info('📊 Initializing cost rank service...')
       const costRankService = require('./services/costRankService')

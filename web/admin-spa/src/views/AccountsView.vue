@@ -4398,9 +4398,18 @@ const getClaudeAccountType = (account) => {
         return 'Claude Max'
       } else if (info.hasClaudePro === true) {
         return 'Claude Pro'
-      } else {
+      }
+
+      // 回退到 accountType 字段（Team 等账户 hasClaudeMax/Pro 均为 false，但 accountType 为 'claude_max'）
+      if (info.accountType === 'claude_max') {
+        return 'Claude Team'
+      } else if (info.accountType === 'claude_pro') {
+        return 'Claude Pro'
+      } else if (info.accountType === 'free') {
         return 'Claude Free'
       }
+
+      return 'Claude'
     } catch (e) {
       // 解析失败，返回默认值
       return 'Claude'
