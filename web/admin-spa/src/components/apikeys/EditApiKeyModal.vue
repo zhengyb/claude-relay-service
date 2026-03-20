@@ -47,6 +47,23 @@
             </p>
           </div>
 
+          <!-- 联系邮箱 -->
+          <div>
+            <label
+              class="mb-1.5 block text-xs font-semibold text-gray-700 dark:text-gray-300 sm:mb-3 sm:text-sm"
+              >联系邮箱 (可选)</label
+            >
+            <input
+              v-model="form.email"
+              class="form-input w-full border-gray-300 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
+              placeholder="holder@example.com"
+              type="email"
+            />
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400 sm:mt-2">
+              用于管理员群发通知，不影响 API 调用
+            </p>
+          </div>
+
           <!-- 服务倍率设置 -->
           <div
             class="rounded-lg border border-purple-200 bg-gradient-to-r from-purple-50 to-indigo-50 p-3 dark:border-purple-700 dark:from-purple-900/20 dark:to-indigo-900/20 sm:p-4"
@@ -926,6 +943,7 @@ const availableServices = [
 // 表单数据
 const form = reactive({
   name: '',
+  email: '',
   serviceRates: {}, // API Key 级别服务倍率
   tokenLimit: '', // 保留用于检测历史数据
   rateLimitWindow: '',
@@ -1039,6 +1057,7 @@ const updateApiKey = async () => {
 
     const data = {
       name: form.name, // 添加名称字段
+      email: form.email,
       serviceRates: filteredServiceRates,
       tokenLimit: 0, // 清除历史token限制
       rateLimitWindow:
@@ -1374,6 +1393,7 @@ onMounted(async () => {
   // 使用缓存的账号数据，不自动刷新（用户可点击"刷新账号"按钮手动刷新）
 
   form.name = props.apiKey.name
+  form.email = props.apiKey.email || ''
   form.serviceRates = props.apiKey.serviceRates || {}
   enableServiceRates.value = Object.keys(form.serviceRates).length > 0
 

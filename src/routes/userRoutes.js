@@ -10,6 +10,9 @@ const { RateLimiterRedis } = require('rate-limiter-flexible')
 const redis = require('../models/redis')
 const { authenticateUser, authenticateUserOrAdmin, requireAdmin } = require('../middleware/auth')
 
+// RFC 5321: maximum email address length
+const MAX_EMAIL_LENGTH = 254
+
 // 🚦 配置登录速率限制
 // 只基于IP地址限制，避免攻击者恶意锁定特定账户
 
@@ -289,7 +292,8 @@ router.get('/api-keys', authenticateUser, async (req, res) => {
 // 🔑 创建新的API Key
 router.post('/api-keys', authenticateUser, async (req, res) => {
   try {
-    const { name, description, tokenLimit, expiresAt, dailyCostLimit, totalCostLimit } = req.body
+    const { name, description, tokenLimit, expiresAt, dailyCostLimit, totalCostLimit, email } =
+      req.body
 
     if (!name || !name.trim()) {
       return res.status(400).json({
@@ -308,6 +312,21 @@ router.post('/api-keys', authenticateUser, async (req, res) => {
         error: 'Invalid total cost limit',
         message: 'Total cost limit must be a non-negative number'
       })
+    }
+
+    if (email !== undefined && email !== null && email !== '') {
+      const trimmedEmail = String(email).trim()
+      if (trimmedEmail.length > MAX_EMAIL_LENGTH) {
+        return res
+          .status(400)
+          .json({ error: 'Invalid email', message: 'Email must be 254 characters or fewer' })
+      }
+      if (/[,;\n\r]/.test(trimmedEmail)) {
+        return res.status(400).json({
+          error: 'Invalid email',
+          message: 'Email must not contain commas, semicolons, or newlines'
+        })
+      }
     }
 
     // 检查用户API Key数量限制
@@ -330,8 +349,9 @@ router.post('/api-keys', authenticateUser, async (req, res) => {
       dailyCostLimit: dailyCostLimit || null,
       totalCostLimit: totalCostLimit || null,
       createdBy: 'user',
-      // 设置服务权限为全部服务，确保前端显示“服务权限”为“全部服务”且具备完整访问权限
-      permissions: 'all'
+      // 设置服务权限为全部服务，确保前端显示”服务权限”为”全部服务”且具备完整访问权限
+      permissions: 'all',
+      email: email !== undefined && email !== null ? String(email).trim() : ''
     }
 
     const newApiKey = await apiKeyService.createApiKey(apiKeyData)

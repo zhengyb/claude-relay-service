@@ -259,6 +259,24 @@
                 <span class="relative">删除选中 ({{ selectedApiKeys.length }})</span>
               </button>
 
+              <!-- 复制邮箱按钮 -->
+              <button
+                class="group relative flex items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-all duration-200 hover:border-gray-300 hover:shadow-md dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:border-gray-500 sm:w-auto"
+                :disabled="copyingEmails"
+                @click="copyAllEmails"
+              >
+                <i class="fas fa-envelope relative text-blue-500" />
+                <span class="relative">复制全部邮箱</span>
+              </button>
+              <button
+                class="group relative flex items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-all duration-200 hover:border-gray-300 hover:shadow-md dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:border-gray-500 sm:w-auto"
+                :disabled="copyingEmails"
+                @click="copyActiveEmails"
+              >
+                <i class="fas fa-envelope-open relative text-green-500" />
+                <span class="relative">复制活跃Key邮箱</span>
+              </button>
+
               <!-- 创建按钮 -->
               <button
                 class="flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-blue-500 to-blue-600 px-5 py-2 text-sm font-medium text-white shadow-md transition-all duration-200 hover:from-blue-600 hover:to-blue-700 hover:shadow-lg sm:w-auto"
@@ -332,6 +350,11 @@
                       class="min-w-[100px] px-3 py-4 text-left text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
                     >
                       标签
+                    </th>
+                    <th
+                      class="min-w-[160px] px-3 py-4 text-left text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
+                    >
+                      联系邮箱
                     </th>
                     <th
                       class="min-w-[80px] cursor-pointer px-3 py-4 text-left text-xs font-bold uppercase tracking-wider text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-600"
@@ -596,6 +619,25 @@
                             >无标签</span
                           >
                         </div>
+                      </td>
+                      <!-- 联系邮箱列 -->
+                      <td class="px-3 py-3">
+                        <div v-if="key.email" class="flex items-center gap-1">
+                          <span
+                            class="max-w-[140px] truncate text-xs text-gray-700 dark:text-gray-300"
+                            :title="key.email"
+                            >{{ key.email }}</span
+                          >
+                          <button
+                            class="ml-1 text-gray-400 hover:text-blue-500 dark:hover:text-blue-400"
+                            :title="'复制 ' + key.email"
+                            type="button"
+                            @click.stop="copyText(key.email)"
+                          >
+                            <i class="fas fa-copy text-xs" />
+                          </button>
+                        </div>
+                        <span v-else class="text-xs text-gray-400">—</span>
                       </td>
                       <td class="whitespace-nowrap px-3 py-3">
                         <span
@@ -1635,6 +1677,23 @@
                 >
                   {{ tag }}
                 </span>
+              </div>
+
+              <!-- 联系邮箱 -->
+              <div
+                v-if="key.email"
+                class="mb-3 flex items-center gap-1 text-xs text-gray-600 dark:text-gray-400"
+              >
+                <i class="fas fa-envelope text-gray-400" />
+                <span class="truncate">{{ key.email }}</span>
+                <button
+                  class="ml-1 text-gray-400 hover:text-blue-500 dark:hover:text-blue-400"
+                  :title="'复制 ' + key.email"
+                  type="button"
+                  @click.stop="copyText(key.email)"
+                >
+                  <i class="fas fa-copy" />
+                </button>
               </div>
 
               <!-- 操作按钮 -->
@@ -4449,6 +4508,43 @@ const isLastUsageDeleted = (apiKey) => {
 const clearSearch = () => {
   searchKeyword.value = ''
   currentPage.value = 1
+}
+
+// 复制邮箱列表
+const copyingEmails = ref(false)
+
+const copyAllEmails = async () => {
+  copyingEmails.value = true
+  try {
+    const res = await httpApis.getApiKeyEmailsApi()
+    const emails = res.data?.all || []
+    if (emails.length === 0) {
+      showToast('没有找到任何邮箱地址', 'warning')
+      return
+    }
+    await copyText(emails.join(', '), `已复制 ${emails.length} 个邮箱地址`)
+  } catch (error) {
+    showToast('获取邮箱列表失败', 'error')
+  } finally {
+    copyingEmails.value = false
+  }
+}
+
+const copyActiveEmails = async () => {
+  copyingEmails.value = true
+  try {
+    const res = await httpApis.getApiKeyEmailsApi()
+    const emails = res.data?.active || []
+    if (emails.length === 0) {
+      showToast('没有找到活跃 Key 的邮箱地址', 'warning')
+      return
+    }
+    await copyText(emails.join(', '), `已复制 ${emails.length} 个邮箱地址`)
+  } catch (error) {
+    showToast('获取邮箱列表失败', 'error')
+  } finally {
+    copyingEmails.value = false
+  }
 }
 
 // 导出数据到Excel

@@ -49,6 +49,21 @@
             ></textarea>
           </div>
 
+          <div>
+            <label class="block text-sm font-medium text-gray-700" for="email">
+              Contact Email
+            </label>
+            <input
+              id="email"
+              v-model="form.email"
+              class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              :disabled="loading"
+              placeholder="your@email.com"
+              type="email"
+            />
+            <p class="mt-1 text-xs text-gray-500">For administrator notifications only</p>
+          </div>
+
           <div v-if="error" class="rounded-md border border-red-200 bg-red-50 p-3">
             <div class="flex">
               <div class="flex-shrink-0">
@@ -192,12 +207,14 @@ const newApiKey = ref(null)
 
 const form = reactive({
   name: '',
-  description: ''
+  description: '',
+  email: ''
 })
 
 const resetForm = () => {
   form.name = ''
   form.description = ''
+  form.email = ''
   error.value = ''
   newApiKey.value = null
 }
@@ -214,7 +231,8 @@ const handleSubmit = async () => {
   try {
     const apiKeyData = {
       name: form.name.trim(),
-      description: form.description.trim() || undefined
+      description: form.description.trim() || undefined,
+      email: form.email.trim() || undefined
     }
 
     const result = await userStore.createApiKey(apiKeyData)

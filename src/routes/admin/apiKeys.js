@@ -11,6 +11,9 @@ const router = express.Router()
 // 有效的权限值列表
 const VALID_PERMISSIONS = ['claude', 'gemini', 'openai', 'droid']
 
+// RFC 5321: maximum email address length
+const MAX_EMAIL_LENGTH = 254
+
 /**
  * 验证权限数组格式
  * @param {any} permissions - 权限值（可以是数组或其他）
@@ -620,6 +623,17 @@ async function getApiKeysSortedByCostCustom(options) {
     availableTags
   }
 }
+
+// 获取所有 API Key 的联系邮箱列表（去重，用于管理员群发）
+router.get('/api-keys/emails', authenticateAdmin, async (req, res) => {
+  try {
+    const result = await apiKeyService.getApiKeyEmails()
+    return res.json({ success: true, data: result })
+  } catch (error) {
+    logger.error('❌ Failed to get API key emails:', error)
+    return res.status(500).json({ error: 'Failed to get API key emails', message: error.message })
+  }
+})
 
 // 获取费用排序索引状态
 router.get('/api-keys/cost-sort-status', authenticateAdmin, async (req, res) => {
@@ -1493,7 +1507,8 @@ router.post('/api-keys', authenticateAdmin, async (req, res) => {
       icon, // 新增：图标
       serviceRates, // API Key 级别服务倍率
       weeklyResetDay, // 周费用重置日 (1-7)
-      weeklyResetHour // 周费用重置时 (0-23)
+      weeklyResetHour, // 周费用重置时 (0-23)
+      email // 联系邮箱
     } = req.body
 
     // 输入验证
@@ -1614,6 +1629,19 @@ router.post('/api-keys', authenticateAdmin, async (req, res) => {
       }
     }
 
+    // 验证邮箱字段
+    if (email !== undefined && email !== null && email !== '') {
+      const trimmedEmail = String(email).trim()
+      if (trimmedEmail.length > MAX_EMAIL_LENGTH) {
+        return res.status(400).json({ error: 'Email must be 254 characters or fewer' })
+      }
+      if (/[,;\n\r]/.test(trimmedEmail)) {
+        return res
+          .status(400)
+          .json({ error: 'Email must not contain commas, semicolons, or newlines' })
+      }
+    }
+
     // 验证服务权限字段（支持数组格式）
     const permissionsError = validatePermissions(permissions)
     if (permissionsError) {
@@ -1678,7 +1706,8 @@ router.post('/api-keys', authenticateAdmin, async (req, res) => {
       weeklyResetHour:
         weeklyResetHour !== undefined && weeklyResetHour !== null && weeklyResetHour !== ''
           ? Number(weeklyResetHour)
-          : 0
+          : 0,
+      email: email !== undefined && email !== null ? String(email).trim() : ''
     })
 
     logger.success(`🔑 Admin created new API key: ${name}`)
@@ -2087,7 +2116,8 @@ router.put('/api-keys/:keyId', authenticateAdmin, async (req, res) => {
       ownerId, // 新增：所有者ID字段
       serviceRates, // API Key 级别服务倍率
       weeklyResetDay, // 周费用重置日 (1-7)
-      weeklyResetHour // 周费用重置时 (0-23)
+      weeklyResetHour, // 周费用重置时 (0-23)
+      email // 联系邮箱
     } = req.body
 
     // 只允许更新指定字段
@@ -2301,6 +2331,20 @@ router.put('/api-keys/:keyId', authenticateAdmin, async (req, res) => {
       }
       updates.weeklyResetHour = hour
       resetConfigChanged = true
+    }
+
+    // 处理邮箱字段
+    if (email !== undefined) {
+      const trimmedEmail = email !== null ? String(email).trim() : ''
+      if (trimmedEmail.length > MAX_EMAIL_LENGTH) {
+        return res.status(400).json({ error: 'Email must be 254 characters or fewer' })
+      }
+      if (trimmedEmail && /[,;\n\r]/.test(trimmedEmail)) {
+        return res
+          .status(400)
+          .json({ error: 'Email must not contain commas, semicolons, or newlines' })
+      }
+      updates.email = trimmedEmail
     }
 
     // 处理活跃/禁用状态状态, 放在过期处理后，以确保后续增加禁用key功能

@@ -56,6 +56,7 @@ export const getSupportedClientsApi = () =>
 
 // API Keys
 export const getApiKeysApi = () => request({ url: '/admin/api-keys', method: 'GET' })
+export const getApiKeyEmailsApi = () => request({ url: '/admin/api-keys/emails', method: 'GET' })
 export const getApiKeysWithParamsApi = (params) =>
   request({ url: `/admin/api-keys?${params}`, method: 'GET' })
 export const createApiKeyApi = (data) => request({ url: '/admin/api-keys', method: 'POST', data })

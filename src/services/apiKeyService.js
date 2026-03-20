@@ -163,7 +163,8 @@ class ApiKeyService {
       icon = '', // 新增：图标（base64编码）
       serviceRates = {}, // API Key 级别服务倍率覆盖
       weeklyResetDay = 1, // 周费用重置日 (1=周一 ... 7=周日)
-      weeklyResetHour = 0 // 周费用重置时 (0-23)
+      weeklyResetHour = 0, // 周费用重置时 (0-23)
+      email = '' // 联系邮箱，用于管理员群发通知
     } = options
 
     // 生成简单的API Key (64字符十六进制)
@@ -215,7 +216,8 @@ class ApiKeyService {
       icon: icon || '', // 新增：图标（base64编码）
       serviceRates: JSON.stringify(serviceRates || {}), // API Key 级别服务倍率
       weeklyResetDay: String(weeklyResetDay || 1), // 周费用重置日 (1-7)
-      weeklyResetHour: String(weeklyResetHour || 0) // 周费用重置时 (0-23)
+      weeklyResetHour: String(weeklyResetHour || 0), // 周费用重置时 (0-23)
+      email: email || '' // 联系邮箱
     }
 
     // 保存API Key数据并建立哈希映射
@@ -282,7 +284,8 @@ class ApiKeyService {
       createdAt: keyData.createdAt,
       expiresAt: keyData.expiresAt,
       createdBy: keyData.createdBy,
-      serviceRates: JSON.parse(keyData.serviceRates || '{}') // API Key 级别服务倍率
+      serviceRates: JSON.parse(keyData.serviceRates || '{}'), // API Key 级别服务倍率
+      email: keyData.email || ''
     }
   }
 
@@ -1192,6 +1195,54 @@ class ApiKeyService {
     }
   }
 
+  // 📧 获取所有 API Key 的联系邮箱（去重）
+  async getApiKeyEmails() {
+    try {
+      const client = redis.getClientSafe()
+      const keyIds = await redis.scanApiKeyIds()
+
+      if (keyIds.length === 0) {
+        return { all: [], active: [] }
+      }
+
+      const pipeline = client.pipeline()
+      for (const keyId of keyIds) {
+        pipeline.hmget(`apikey:${keyId}`, 'email', 'isActive', 'isDeleted')
+      }
+      const results = await pipeline.exec()
+
+      const allSet = new Set()
+      const activeSet = new Set()
+
+      for (let i = 0; i < keyIds.length; i++) {
+        const [err, fields] = results[i]
+        if (err) {
+          continue
+        }
+        const [emailRaw, isActiveRaw, isDeletedRaw] = fields
+        if (isDeletedRaw === 'true') {
+          continue
+        }
+        const email = (emailRaw || '').trim().toLowerCase()
+        if (!email) {
+          continue
+        }
+        allSet.add(email)
+        if (isActiveRaw === 'true') {
+          activeSet.add(email)
+        }
+      }
+
+      return {
+        all: Array.from(allSet).sort(),
+        active: Array.from(activeSet).sort()
+      }
+    } catch (error) {
+      logger.error('❌ Failed to get API key emails:', error)
+      throw error
+    }
+  }
+
   // 📝 更新API Key
   async updateApiKey(keyId, updates) {
     try {
@@ -1237,7 +1288,8 @@ class ApiKeyService {
         'createdBy', // 新增：创建者（所有者变更）
         'serviceRates', // API Key 级别服务倍率
         'weeklyResetDay', // 周费用重置日 (1-7)
-        'weeklyResetHour' // 周费用重置时 (0-23)
+        'weeklyResetHour', // 周费用重置时 (0-23)
+        'email' // 联系邮箱
       ]
       const updatedData = { ...keyData }
 
