@@ -982,7 +982,7 @@ class ClaudeAccountService {
                 return isNewOpus
               }
 
-              // Max account: supports all Opus versions
+              // Team / Max / Enterprise: supports all Opus versions
               return true
             } catch (e) {
               // Parse failed, assume legacy data (Max), default support
@@ -994,7 +994,7 @@ class ClaudeAccountService {
         })
 
         if (activeAccounts.length === 0) {
-          const modelDesc = isNewOpus ? 'Opus 4.5+' : 'legacy Opus (requires Max subscription)'
+          const modelDesc = isNewOpus ? 'Opus 4.5+' : 'legacy Opus (requires Team/Max subscription)'
           throw new Error(`No Claude accounts available that support ${modelDesc} model`)
         }
       }
@@ -1108,7 +1108,7 @@ class ClaudeAccountService {
                 return isNewOpus
               }
 
-              // Max account: supports all Opus versions
+              // Team / Max / Enterprise: supports all Opus versions
               return true
             } catch (e) {
               // Parse failed, assume legacy data (Max), default support
@@ -2272,8 +2272,23 @@ class ClaudeAccountService {
           profileData.organization?.organization_type || ''
         ).toLowerCase()
         const isEnterpriseOrg = organizationType === 'claude_enterprise'
+        const isTeamOrg = organizationType === 'claude_team'
         const hasClaudeMax = profileData.account?.has_claude_max === true || isEnterpriseOrg
         const hasClaudePro = profileData.account?.has_claude_pro === true && !hasClaudeMax
+
+        // 确定账号类型：优先使用 API 字段，再根据组织类型推断
+        let accountType
+        if (hasClaudeMax) {
+          accountType = 'claude_max'
+        } else if (hasClaudePro) {
+          accountType = 'claude_pro'
+        } else if (isTeamOrg) {
+          accountType = 'claude_team'
+        } else if (isEnterpriseOrg) {
+          accountType = 'claude_max'
+        } else {
+          accountType = 'claude_max' // 未识别的类型不降级为 free
+        }
 
         // 构建订阅信息
         const subscriptionInfo = {
@@ -2292,8 +2307,7 @@ class ClaudeAccountService {
           rateLimitTier: profileData.organization?.rate_limit_tier,
           organizationType: profileData.organization?.organization_type,
 
-          // 账号类型：Enterprise 组织按 Max 能力处理，确保可调度 Opus
-          accountType: hasClaudeMax ? 'claude_max' : hasClaudePro ? 'claude_pro' : 'claude_max',
+          accountType,
 
           // 更新时间
           profileFetchedAt: new Date().toISOString()
@@ -2553,13 +2567,20 @@ class ClaudeAccountService {
         // 回退：无 scope / token 失效 / API 调用失败 → 本地修复
         try {
           const info = JSON.parse(account.subscriptionInfo)
-          info.accountType = 'claude_max'
-          info.hasClaudeMax = true
+          const orgType = String(info.organizationType || '').toLowerCase()
+          if (orgType === 'claude_team') {
+            info.accountType = 'claude_team'
+          } else {
+            info.accountType = 'claude_max'
+            info.hasClaudeMax = true
+          }
           info.repairedAt = new Date().toISOString()
           account.subscriptionInfo = JSON.stringify(info)
           await redis.setClaudeAccount(account.id, account)
           localFixed++
-          logger.info(`🔧 Local fix for ${account.name} (${account.id}): 'free' → 'claude_max'`)
+          logger.info(
+            `🔧 Local fix for ${account.name} (${account.id}): 'free' → '${info.accountType}'`
+          )
         } catch (_e) {
           failed++
         }

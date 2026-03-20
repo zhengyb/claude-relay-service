@@ -68,7 +68,7 @@ class UnifiedClaudeScheduler {
       // VERSION RESTRICTION LOGIC:
       // - Free: No Opus models
       // - Pro: Only Opus 4.5+ (isOpus45OrNewer = true)
-      // - Max: All Opus versions
+      // - Team / Max / Enterprise: All Opus versions
       if (requestedModel.toLowerCase().includes('opus')) {
         const isNewOpus = isOpus45OrNewer(requestedModel)
 
@@ -100,7 +100,7 @@ class UnifiedClaudeScheduler {
               return true
             }
 
-            // Max account: supports all Opus versions (no restriction)
+            // Team / Max / Enterprise: supports all Opus versions (no restriction)
           } catch (e) {
             // Parse failed, assume legacy data (Max), default support
             logger.debug(
