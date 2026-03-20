@@ -1508,6 +1508,19 @@ class ClaudeRelayService {
       })
     }
 
+    // 确定最终 User-Agent（在序列化 body 之前，因为需要对齐 metadata.user_id 格式）
+    const userAgent =
+      unifiedUA || finalHeaders['user-agent'] || 'claude-cli/1.0.119 (external, cli)'
+
+    // 将 metadata.user_id 格式与 User-Agent 版本对齐
+    // 避免统一 UA 后出现版本与格式不匹配（如 UA 声称 v2.1.80 但 user_id 为旧格式）
+    if (requestPayload?.metadata?.user_id) {
+      requestPayload.metadata.user_id = metadataUserIdHelper.normalizeFormat(
+        requestPayload.metadata.user_id,
+        userAgent
+      )
+    }
+
     // 序列化请求体，计算 content-length
     const bodyString = JSON.stringify(requestPayload)
     const contentLength = Buffer.byteLength(bodyString, 'utf8')
@@ -1532,8 +1545,6 @@ class ClaudeRelayService {
     // 必须在 spread 后覆盖回 identity，因为 https.request 的手动解压只支持 gzip/deflate
     headers['accept-encoding'] = 'identity'
 
-    // 使用统一 User-Agent 或客户端提供的，最后使用默认值
-    const userAgent = unifiedUA || headers['user-agent'] || 'claude-cli/1.0.119 (external, cli)'
     const acceptHeader = headers['accept'] || 'application/json'
     delete headers['user-agent']
     delete headers['accept']

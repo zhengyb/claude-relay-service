@@ -97,4 +97,60 @@ function isValid(userId) {
   return parse(userId) !== null
 }
 
-module.exports = { parse, extractSessionId, build, isValid }
+/**
+ * v2.1.78 引入 JSON 格式 metadata.user_id 的版本分界点。
+ * 用于将 user_id 格式与 User-Agent 版本对齐。
+ */
+const JSON_FORMAT_MIN_VERSION = [2, 1, 78]
+
+/**
+ * 将 user_id 格式转换为与 User-Agent 版本匹配的格式。
+ * 当统一 User-Agent 与原始客户端版本不一致时，上游可能根据 UA 版本
+ * 期望特定的 user_id 格式。此函数确保两者一致。
+ *
+ * @param {string} userId - 当前 user_id
+ * @param {string} userAgent - 将发往上游的 User-Agent
+ * @returns {string} 格式对齐后的 user_id，无法解析时返回原值
+ */
+function normalizeFormat(userId, userAgent) {
+  const parsed = parse(userId)
+  if (!parsed) {
+    return userId
+  }
+
+  const shouldBeJson = isVersionJsonFormat(userAgent)
+  if (parsed.isJsonFormat === shouldBeJson) {
+    return userId // 已经匹配
+  }
+
+  return build({ ...parsed, isJsonFormat: shouldBeJson })
+}
+
+/**
+ * 根据 User-Agent 版本判断应使用 JSON 格式还是旧格式
+ * @param {string} userAgent
+ * @returns {boolean} true = JSON 格式 (v2.1.78+)
+ */
+function isVersionJsonFormat(userAgent) {
+  if (!userAgent) {
+    return false
+  }
+  const match = userAgent.match(/claude-cli\/([\d.]+)/i)
+  if (!match) {
+    return false
+  }
+  const parts = match[1].split('.').map(Number)
+  for (let i = 0; i < JSON_FORMAT_MIN_VERSION.length; i++) {
+    const v = parts[i] || 0
+    const min = JSON_FORMAT_MIN_VERSION[i]
+    if (v > min) {
+      return true
+    }
+    if (v < min) {
+      return false
+    }
+  }
+  return true // 等于阈值版本也用 JSON
+}
+
+module.exports = { parse, extractSessionId, build, isValid, normalizeFormat }
