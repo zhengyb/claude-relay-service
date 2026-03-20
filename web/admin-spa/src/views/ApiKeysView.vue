@@ -4522,7 +4522,7 @@ const copyAllEmails = async () => {
       showToast('没有找到任何邮箱地址', 'warning')
       return
     }
-    await copyText(emails.join(', '), `已复制 ${emails.length} 个邮箱地址`)
+    await copyText(emails.join('; '), `已复制 ${emails.length} 个邮箱地址`)
   } catch (error) {
     showToast('获取邮箱列表失败', 'error')
   } finally {
@@ -4539,7 +4539,7 @@ const copyActiveEmails = async () => {
       showToast('没有找到活跃 Key 的邮箱地址', 'warning')
       return
     }
-    await copyText(emails.join(', '), `已复制 ${emails.length} 个邮箱地址`)
+    await copyText(emails.join('; '), `已复制 ${emails.length} 个邮箱地址`)
   } catch (error) {
     showToast('获取邮箱列表失败', 'error')
   } finally {
