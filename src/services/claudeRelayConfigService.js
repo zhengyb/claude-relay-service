@@ -357,20 +357,11 @@ class ClaudeRelayConfigService {
         return { valid: true }
       }
 
-      const accountValid = await this.validateBoundAccount(existingBinding)
-
-      if (!accountValid) {
-        return {
-          valid: false,
-          error: cfg.sessionBindingErrorMessage,
-          code: 'SESSION_BINDING_INVALID'
-        }
-      }
-
       // 续期
       await this.touchOriginalSessionBinding(originalSessionId)
 
-      // 已有绑定，允许继续（这是正常的会话延续）
+      // 无论账户是否健康，都将绑定传递给调度器
+      // 调度器会检查可用性，不可用时自动 rebind 到其他账户
       return { valid: true, binding: existingBinding }
     }
 

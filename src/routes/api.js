@@ -349,17 +349,36 @@ async function handleMessagesRequest(req, res) {
           forcedAccount
         )
         ;({ accountId, accountType } = selection)
-      } catch (error) {
-        // 处理会话绑定账户不可用的错误
-        if (error.code === 'SESSION_BINDING_ACCOUNT_UNAVAILABLE') {
-          const errorMessage = await claudeRelayConfigService.getSessionBindingErrorMessage()
-          return res.status(403).json({
-            error: {
-              type: 'session_binding_error',
-              message: errorMessage
+
+        // 🔄 处理会话绑定自动重绑定（仅 claude-official 账号之间切换）
+        if (selection.rebind && forcedAccount && accountType === 'claude-official') {
+          const originalSessionId = claudeRelayConfigService.extractOriginalSessionId(req.body)
+          if (originalSessionId) {
+            try {
+              await claudeRelayConfigService.setOriginalSessionBinding(
+                originalSessionId,
+                accountId,
+                accountType
+              )
+              logger.info(
+                `🔄 Session auto-rebind: ${selection.rebind.previousAccountId} → ${accountId} for session ${originalSessionId}`
+              )
+              // 通知管理员
+              const webhookNotifier = require('../utils/webhookNotifier')
+              await webhookNotifier.sendAccountEvent('account.session_rebind', {
+                previousAccountId: selection.rebind.previousAccountId,
+                previousAccountType: selection.rebind.previousAccountType,
+                newAccountId: accountId,
+                newAccountType: accountType,
+                apiKeyName: req.apiKey?.name,
+                reason: 'bound account unavailable, auto-rebind to new account'
+              })
+            } catch (rebindError) {
+              logger.warn('⚠️ Failed to update session binding after rebind:', rebindError)
             }
-          })
+          }
         }
+      } catch (error) {
         if (error.code === 'CLAUDE_DEDICATED_RATE_LIMITED') {
           const limitMessage = claudeRelayService._buildStandardRateLimitMessage(
             error.rateLimitEndAt
@@ -1023,16 +1042,39 @@ async function handleMessagesRequest(req, res) {
           forcedAccountNonStream
         )
         ;({ accountId, accountType } = selection)
-      } catch (error) {
-        if (error.code === 'SESSION_BINDING_ACCOUNT_UNAVAILABLE') {
-          const errorMessage = await claudeRelayConfigService.getSessionBindingErrorMessage()
-          return res.status(403).json({
-            error: {
-              type: 'session_binding_error',
-              message: errorMessage
+
+        // 🔄 处理会话绑定自动重绑定（非流式，仅 claude-official 账号之间切换）
+        if (selection.rebind && forcedAccountNonStream && accountType === 'claude-official') {
+          const originalSessionId = claudeRelayConfigService.extractOriginalSessionId(req.body)
+          if (originalSessionId) {
+            try {
+              await claudeRelayConfigService.setOriginalSessionBinding(
+                originalSessionId,
+                accountId,
+                accountType
+              )
+              logger.info(
+                `🔄 Session auto-rebind (non-stream): ${selection.rebind.previousAccountId} → ${accountId} for session ${originalSessionId}`
+              )
+              // 通知管理员
+              const webhookNotifier = require('../utils/webhookNotifier')
+              await webhookNotifier.sendAccountEvent('account.session_rebind', {
+                previousAccountId: selection.rebind.previousAccountId,
+                previousAccountType: selection.rebind.previousAccountType,
+                newAccountId: accountId,
+                newAccountType: accountType,
+                apiKeyName: req.apiKey?.name,
+                reason: 'bound account unavailable, auto-rebind to new account'
+              })
+            } catch (rebindError) {
+              logger.warn(
+                '⚠️ Failed to update session binding after rebind (non-stream):',
+                rebindError
+              )
             }
-          })
+          }
         }
+      } catch (error) {
         if (error.code === 'CLAUDE_DEDICATED_RATE_LIMITED') {
           const limitMessage = claudeRelayService._buildStandardRateLimitMessage(
             error.rateLimitEndAt

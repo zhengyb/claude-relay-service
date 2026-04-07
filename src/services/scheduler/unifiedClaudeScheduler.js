@@ -179,6 +179,9 @@ class UnifiedClaudeScheduler {
     forcedAccount = null
   ) {
     try {
+      // 🔄 当绑定账户不可用时，记录旧绑定以便调用方更新绑定关系
+      let rebindFrom = null
+
       // 🔒 如果有强制绑定的账户（全局会话绑定），仅 claude-official 类型受影响
       if (forcedAccount && forcedAccount.accountId && forcedAccount.accountType) {
         // ⚠️ 只有 claude-official 类型账户受全局会话绑定限制
@@ -209,15 +212,15 @@ class UnifiedClaudeScheduler {
               accountType: forcedAccount.accountType
             }
           } else {
-            // 绑定账户不可用，抛出特定错误（不 fallback）
+            // 绑定账户不可用，记录旧绑定信息，继续走正常调度逻辑以自动重绑定
             logger.warn(
-              `❌ Forced session binding account unavailable: ${forcedAccount.accountId} (${forcedAccount.accountType})`
+              `⚠️ Forced session binding account unavailable: ${forcedAccount.accountId} (${forcedAccount.accountType}), will auto-rebind to another account`
             )
-            const error = new Error('Session binding account unavailable')
-            error.code = 'SESSION_BINDING_ACCOUNT_UNAVAILABLE'
-            error.accountId = forcedAccount.accountId
-            error.accountType = forcedAccount.accountType
-            throw error
+            rebindFrom = {
+              previousAccountId: forcedAccount.accountId,
+              previousAccountType: forcedAccount.accountType
+            }
+            // 不 throw，继续走下面的正常调度逻辑
           }
         }
       }
@@ -449,10 +452,20 @@ class UnifiedClaudeScheduler {
         `🎯 Selected account: ${selectedAccount.name} (${selectedAccount.accountId}, ${selectedAccount.accountType}) with priority ${selectedAccount.priority} for API key ${apiKeyData.name}`
       )
 
-      return {
+      const result = {
         accountId: selectedAccount.accountId,
         accountType: selectedAccount.accountType
       }
+
+      // 如果是从不可用的绑定账户自动切换过来的，附带重绑定信息
+      if (rebindFrom) {
+        result.rebind = rebindFrom
+        logger.info(
+          `🔄 Auto-rebind: ${rebindFrom.previousAccountId} → ${selectedAccount.accountId} (${selectedAccount.accountType})`
+        )
+      }
+
+      return result
     } catch (error) {
       logger.error('❌ Failed to select account for API key:', error)
       throw error
@@ -1829,6 +1842,12 @@ class UnifiedClaudeScheduler {
         logger.warn(
           `Session binding: Claude OAuth account ${accountId} has error status: ${status}`
         )
+        return false
+      }
+
+      // 检查是否可调度（包括被 autoStopOnWarning 停止的情况）
+      if (!isSchedulable(account.schedulable)) {
+        logger.warn(`Session binding: Claude OAuth account ${accountId} is not schedulable`)
         return false
       }
 
