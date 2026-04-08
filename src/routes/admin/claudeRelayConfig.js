@@ -39,6 +39,7 @@ router.put('/claude-relay-config', authenticateAdmin, async (req, res) => {
     const {
       claudeCodeOnlyEnabled,
       globalSessionBindingEnabled,
+      autoRebindEnabled,
       sessionBindingErrorMessage,
       sessionBindingTtlDays,
       userMessageQueueEnabled,
@@ -60,6 +61,10 @@ router.put('/claude-relay-config', authenticateAdmin, async (req, res) => {
       typeof globalSessionBindingEnabled !== 'boolean'
     ) {
       return res.status(400).json({ error: 'globalSessionBindingEnabled must be a boolean' })
+    }
+
+    if (autoRebindEnabled !== undefined && typeof autoRebindEnabled !== 'boolean') {
+      return res.status(400).json({ error: 'autoRebindEnabled must be a boolean' })
     }
 
     if (sessionBindingErrorMessage !== undefined) {
@@ -168,6 +173,9 @@ router.put('/claude-relay-config', authenticateAdmin, async (req, res) => {
     }
     if (globalSessionBindingEnabled !== undefined) {
       updateData.globalSessionBindingEnabled = globalSessionBindingEnabled
+    }
+    if (autoRebindEnabled !== undefined) {
+      updateData.autoRebindEnabled = autoRebindEnabled
     }
     if (sessionBindingErrorMessage !== undefined) {
       updateData.sessionBindingErrorMessage = sessionBindingErrorMessage

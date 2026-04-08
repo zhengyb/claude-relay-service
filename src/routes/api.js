@@ -350,32 +350,43 @@ async function handleMessagesRequest(req, res) {
         )
         ;({ accountId, accountType } = selection)
 
-        // 🔄 处理会话绑定自动重绑定（仅 claude-official 账号之间切换）
+        // 🔄 处理会话绑定账号不可用
         if (selection.rebind && forcedAccount && accountType === 'claude-official') {
-          const originalSessionId = claudeRelayConfigService.extractOriginalSessionId(req.body)
-          if (originalSessionId) {
-            try {
-              await claudeRelayConfigService.setOriginalSessionBinding(
-                originalSessionId,
-                accountId,
-                accountType
-              )
-              logger.info(
-                `🔄 Session auto-rebind: ${selection.rebind.previousAccountId} → ${accountId} for session ${originalSessionId}`
-              )
-              // 通知管理员
-              const webhookNotifier = require('../utils/webhookNotifier')
-              await webhookNotifier.sendAccountEvent('account.session_rebind', {
-                previousAccountId: selection.rebind.previousAccountId,
-                previousAccountType: selection.rebind.previousAccountType,
-                newAccountId: accountId,
-                newAccountType: accountType,
-                apiKeyName: req.apiKey?.name,
-                reason: 'bound account unavailable, auto-rebind to new account'
-              })
-            } catch (rebindError) {
-              logger.warn('⚠️ Failed to update session binding after rebind:', rebindError)
+          const autoRebindEnabled = await claudeRelayConfigService.isAutoRebindEnabled()
+          if (autoRebindEnabled) {
+            // 自动重绑定：更新绑定关系并通知管理员
+            const originalSessionId = claudeRelayConfigService.extractOriginalSessionId(req.body)
+            if (originalSessionId) {
+              try {
+                await claudeRelayConfigService.setOriginalSessionBinding(
+                  originalSessionId,
+                  accountId,
+                  accountType
+                )
+                logger.info(
+                  `🔄 Session auto-rebind: ${selection.rebind.previousAccountId} → ${accountId} for session ${originalSessionId}`
+                )
+                const webhookNotifier = require('../utils/webhookNotifier')
+                await webhookNotifier.sendAccountEvent('account.session_rebind', {
+                  previousAccountId: selection.rebind.previousAccountId,
+                  previousAccountType: selection.rebind.previousAccountType,
+                  newAccountId: accountId,
+                  newAccountType: accountType,
+                  apiKeyName: req.apiKey?.name,
+                  reason: 'bound account unavailable, auto-rebind to new account'
+                })
+              } catch (rebindError) {
+                logger.warn('⚠️ Failed to update session binding after rebind:', rebindError)
+              }
             }
+          } else {
+            // 未开启自动重绑定：拒绝请求，等待绑定账号恢复
+            return res.status(403).json({
+              error: {
+                type: 'session_binding_error',
+                message: `绑定账户 ${selection.rebind.previousAccountId} 暂时不可用，请稍后重试`
+              }
+            })
           }
         }
       } catch (error) {
@@ -1043,35 +1054,46 @@ async function handleMessagesRequest(req, res) {
         )
         ;({ accountId, accountType } = selection)
 
-        // 🔄 处理会话绑定自动重绑定（非流式，仅 claude-official 账号之间切换）
+        // 🔄 处理会话绑定账号不可用（非流式）
         if (selection.rebind && forcedAccountNonStream && accountType === 'claude-official') {
-          const originalSessionId = claudeRelayConfigService.extractOriginalSessionId(req.body)
-          if (originalSessionId) {
-            try {
-              await claudeRelayConfigService.setOriginalSessionBinding(
-                originalSessionId,
-                accountId,
-                accountType
-              )
-              logger.info(
-                `🔄 Session auto-rebind (non-stream): ${selection.rebind.previousAccountId} → ${accountId} for session ${originalSessionId}`
-              )
-              // 通知管理员
-              const webhookNotifier = require('../utils/webhookNotifier')
-              await webhookNotifier.sendAccountEvent('account.session_rebind', {
-                previousAccountId: selection.rebind.previousAccountId,
-                previousAccountType: selection.rebind.previousAccountType,
-                newAccountId: accountId,
-                newAccountType: accountType,
-                apiKeyName: req.apiKey?.name,
-                reason: 'bound account unavailable, auto-rebind to new account'
-              })
-            } catch (rebindError) {
-              logger.warn(
-                '⚠️ Failed to update session binding after rebind (non-stream):',
-                rebindError
-              )
+          const autoRebindEnabled = await claudeRelayConfigService.isAutoRebindEnabled()
+          if (autoRebindEnabled) {
+            // 自动重绑定：更新绑定关系并通知管理员
+            const originalSessionId = claudeRelayConfigService.extractOriginalSessionId(req.body)
+            if (originalSessionId) {
+              try {
+                await claudeRelayConfigService.setOriginalSessionBinding(
+                  originalSessionId,
+                  accountId,
+                  accountType
+                )
+                logger.info(
+                  `🔄 Session auto-rebind (non-stream): ${selection.rebind.previousAccountId} → ${accountId} for session ${originalSessionId}`
+                )
+                const webhookNotifier = require('../utils/webhookNotifier')
+                await webhookNotifier.sendAccountEvent('account.session_rebind', {
+                  previousAccountId: selection.rebind.previousAccountId,
+                  previousAccountType: selection.rebind.previousAccountType,
+                  newAccountId: accountId,
+                  newAccountType: accountType,
+                  apiKeyName: req.apiKey?.name,
+                  reason: 'bound account unavailable, auto-rebind to new account'
+                })
+              } catch (rebindError) {
+                logger.warn(
+                  '⚠️ Failed to update session binding after rebind (non-stream):',
+                  rebindError
+                )
+              }
             }
+          } else {
+            // 未开启自动重绑定：拒绝请求，等待绑定账号恢复
+            return res.status(403).json({
+              error: {
+                type: 'session_binding_error',
+                message: `绑定账户 ${selection.rebind.previousAccountId} 暂时不可用，请稍后重试`
+              }
+            })
           }
         }
       } catch (error) {

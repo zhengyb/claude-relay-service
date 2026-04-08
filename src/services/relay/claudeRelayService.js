@@ -796,6 +796,9 @@ class ClaudeRelayService {
                   accountId
                 }
               }
+              // 非专属 Opus 限流也需标记，确保重试调度器不会再选中同一账户
+              isRateLimited = true
+              rateLimitResetTimestamp = parsedResetTimestamp
             } else {
               isRateLimited = true
               if (!Number.isNaN(parsedResetTimestamp)) {
@@ -869,6 +872,52 @@ class ClaudeRelayService {
                 message: dedicatedRateLimitMessage
               }),
               accountId
+            }
+          }
+
+          // 🔄 非专属账号429：尝试切换账号重试（最多1次，需开启自动重绑定）
+          const claudeRelayConfigService = require('../claudeRelayConfigService')
+          const autoRebindOn = await claudeRelayConfigService.isAutoRebindEnabled()
+          if (!isDedicatedOfficialAccount && !options._429RetryAttempted && autoRebindOn) {
+            // 发送429通知给管理员
+            try {
+              const webhookNotifier = require('../../utils/webhookNotifier')
+              const { getISOStringWithTimezone } = require('../../utils/dateHelper')
+              await webhookNotifier.sendAccountAnomalyNotification({
+                accountId,
+                accountName: account?.name || accountId,
+                platform: 'claude',
+                status: 'rate_limited',
+                errorCode: 'CLAUDE_429_RATE_LIMITED',
+                reason: `上游返回 429 限流`,
+                timestamp: getISOStringWithTimezone(new Date())
+              })
+            } catch (notifyError) {
+              logger.warn('⚠️ Failed to send 429 notification:', notifyError.message)
+            }
+
+            try {
+              const newSelection = await unifiedClaudeScheduler.selectAccountForApiKey(
+                apiKeyData,
+                sessionHash,
+                requestBody.model
+              )
+              logger.info(
+                `🔄 [Non-Stream] 429 retry: switching from ${accountId} to ${newSelection.accountId}`
+              )
+              return await this.relayRequest(
+                requestBody,
+                apiKeyData,
+                clientRequest,
+                clientResponse,
+                clientHeaders,
+                { ...options, _429RetryAttempted: true }
+              )
+            } catch (retryError) {
+              logger.warn(
+                `⚠️ [Non-Stream] 429 retry failed, no available accounts: ${retryError.message}`
+              )
+              // 重试失败，透传原始429
             }
           }
         }
@@ -1959,7 +2008,10 @@ class ClaudeRelayService {
         {
           ...options,
           bodyStoreId,
-          isRealClaudeCodeRequest
+          isRealClaudeCodeRequest,
+          apiKeyData,
+          sessionHash,
+          requestedModel: requestBody.model
         },
         isDedicatedOfficialAccount,
         // 📬 新增回调：在收到响应头时释放队列锁
@@ -2161,6 +2213,21 @@ class ClaudeRelayService {
                 resolve()
                 return
               }
+              // 非专属 Opus 限流也需标记临时不可用，确保重试不会选中同一账户
+              await unifiedClaudeScheduler.markAccountRateLimited(
+                accountId,
+                accountType,
+                sessionHash,
+                parsedResetTimestamp
+              )
+              await upstreamErrorHelper
+                .markTempUnavailable(
+                  accountId,
+                  accountType,
+                  429,
+                  upstreamErrorHelper.parseRetryAfter(res.headers)
+                )
+                .catch(() => {})
             } else {
               const rateLimitResetTimestamp = Number.isNaN(parsedResetTimestamp)
                 ? null
@@ -2201,7 +2268,89 @@ class ClaudeRelayService {
               }
             }
 
-            // 非专属账户的真正限流：透传错误给客户端（body 已读完，无需 fall-through）
+            // 🔄 非专属账户429：尝试切换账号重试（需开启自动重绑定）
+            const claudeRelayConfigService = require('../claudeRelayConfigService')
+            const autoRebindOn = await claudeRelayConfigService.isAutoRebindEnabled()
+            if (
+              !isDedicatedOfficialAccount &&
+              !responseStream.headersSent &&
+              retryCount === 0 &&
+              autoRebindOn
+            ) {
+              // 发送429通知给管理员
+              try {
+                const webhookNotifier = require('../../utils/webhookNotifier')
+                const { getISOStringWithTimezone } = require('../../utils/dateHelper')
+                await webhookNotifier.sendAccountAnomalyNotification({
+                  accountId,
+                  accountName: account?.name || accountId,
+                  platform: 'claude',
+                  status: 'rate_limited',
+                  errorCode: 'CLAUDE_429_RATE_LIMITED',
+                  reason: `上游返回 429 限流`,
+                  timestamp: getISOStringWithTimezone(new Date())
+                })
+              } catch (notifyError) {
+                logger.warn('⚠️ [Stream] Failed to send 429 notification:', notifyError.message)
+              }
+
+              try {
+                const newSelection = await unifiedClaudeScheduler.selectAccountForApiKey(
+                  requestOptions.apiKeyData,
+                  requestOptions.sessionHash,
+                  body?.model || requestOptions.requestedModel
+                )
+                logger.info(
+                  `🔄 [Stream] 429 retry: switching from ${accountId} to ${newSelection.accountId}`
+                )
+
+                // 消费当前响应并销毁请求
+                res.resume()
+                req.destroy()
+
+                // 获取新账号的 token 和代理
+                const newAccessToken = await claudeAccountService.getValidAccessToken(
+                  newSelection.accountId
+                )
+                const newProxyAgent = await this._getProxyAgent(newSelection.accountId)
+                const newAccount = await claudeAccountService.getAccount(newSelection.accountId)
+
+                // 用新账号重试
+                let retryBody
+                try {
+                  retryBody = JSON.parse(this.bodyStore.get(requestOptions.bodyStoreId))
+                } catch (parseError) {
+                  throw new Error(`429 retry body parse failed: ${parseError.message}`)
+                }
+
+                const retryResult = await this._makeClaudeStreamRequestWithUsageCapture(
+                  retryBody,
+                  newAccessToken,
+                  newProxyAgent,
+                  clientHeaders,
+                  responseStream,
+                  usageCallback,
+                  newSelection.accountId,
+                  newSelection.accountType,
+                  requestOptions.sessionHash,
+                  streamTransformer,
+                  {
+                    ...requestOptions,
+                    account: newAccount
+                  },
+                  false, // isDedicatedOfficialAccount
+                  onResponseStart,
+                  1 // retryCount = 1 防止再次重试
+                )
+                resolve(retryResult)
+                return
+              } catch (retryError) {
+                logger.warn(`⚠️ [Stream] 429 retry failed: ${retryError.message}`)
+                // 重试失败，继续透传原始429
+              }
+            }
+
+            // 透传429错误给客户端
             logger.error(
               `❌ Claude API returned error status: 429 | Account: ${account?.name || accountId}`
             )

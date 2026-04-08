@@ -829,6 +829,32 @@
 
               <!-- 绑定配置详情（仅在启用时显示） -->
               <div v-if="claudeConfig.globalSessionBindingEnabled" class="mt-6 space-y-4">
+                <!-- 自动重绑定 -->
+                <div
+                  class="flex items-center justify-between rounded-lg border border-purple-200 bg-purple-50/50 p-4 dark:border-purple-700 dark:bg-purple-900/20"
+                >
+                  <div>
+                    <div class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                      <i class="fas fa-random mr-2 text-purple-400"></i>
+                      自动重绑定
+                    </div>
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      绑定账户不可用（限流、停调度、停用等）时，自动切换到其他可用账户并更新绑定关系
+                    </p>
+                  </div>
+                  <label class="relative inline-flex cursor-pointer items-center">
+                    <input
+                      v-model="claudeConfig.autoRebindEnabled"
+                      class="peer sr-only"
+                      type="checkbox"
+                      @change="saveClaudeConfig"
+                    />
+                    <div
+                      class="peer h-6 w-11 rounded-full bg-gray-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-purple-500 peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 dark:border-gray-600 dark:bg-gray-700 dark:peer-focus:ring-purple-800"
+                    ></div>
+                  </label>
+                </div>
+
                 <!-- 绑定有效期 -->
                 <div>
                   <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -1921,6 +1947,7 @@ const claudeConfigLoading = ref(false)
 const claudeConfig = ref({
   claudeCodeOnlyEnabled: false,
   globalSessionBindingEnabled: false,
+  autoRebindEnabled: false,
   sessionBindingErrorMessage: '你的本地session已污染，请清理后使用。',
   sessionBindingTtlDays: 1,
   userMessageQueueEnabled: false, // 与后端默认值保持一致
@@ -2219,6 +2246,7 @@ const loadClaudeConfig = async () => {
       claudeConfig.value = {
         claudeCodeOnlyEnabled: response.config?.claudeCodeOnlyEnabled ?? false,
         globalSessionBindingEnabled: response.config?.globalSessionBindingEnabled ?? false,
+        autoRebindEnabled: response.config?.autoRebindEnabled ?? false,
         sessionBindingErrorMessage:
           response.config?.sessionBindingErrorMessage || '你的本地session已污染，请清理后使用。',
         sessionBindingTtlDays: response.config?.sessionBindingTtlDays ?? 1,
@@ -2253,6 +2281,7 @@ const saveClaudeConfig = async () => {
     const payload = {
       claudeCodeOnlyEnabled: claudeConfig.value.claudeCodeOnlyEnabled,
       globalSessionBindingEnabled: claudeConfig.value.globalSessionBindingEnabled,
+      autoRebindEnabled: claudeConfig.value.autoRebindEnabled,
       sessionBindingErrorMessage: claudeConfig.value.sessionBindingErrorMessage,
       sessionBindingTtlDays: claudeConfig.value.sessionBindingTtlDays,
       userMessageQueueEnabled: claudeConfig.value.userMessageQueueEnabled,

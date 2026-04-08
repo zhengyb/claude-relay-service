@@ -16,6 +16,7 @@ const DEFAULT_CONFIG = {
   globalSessionBindingEnabled: false,
   sessionBindingErrorMessage: '你的本地session已污染，请清理后使用。',
   sessionBindingTtlDays: 1, // 会话绑定 TTL（天），默认1天（支持 /clear 场景，避免 Redis 累积）
+  autoRebindEnabled: false, // 绑定账户不可用时自动重绑定到其他账户（默认关闭）
   // 用户消息队列配置
   userMessageQueueEnabled: false, // 是否启用用户消息队列（默认关闭）
   userMessageQueueDelayMs: 200, // 请求间隔（毫秒）
@@ -138,6 +139,15 @@ class ClaudeRelayConfigService {
   async isGlobalSessionBindingEnabled() {
     const cfg = await this.getConfig()
     return cfg.globalSessionBindingEnabled === true
+  }
+
+  /**
+   * 检查是否启用自动重绑定
+   * @returns {Promise<boolean>}
+   */
+  async isAutoRebindEnabled() {
+    const cfg = await this.getConfig()
+    return cfg.autoRebindEnabled === true
   }
 
   /**
