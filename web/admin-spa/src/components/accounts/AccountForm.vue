@@ -2035,18 +2035,18 @@
                     >可调度时段（HH:MM，支持跨天）</label
                   >
                   <div
-                    v-for="(window, idx) in form.backupSchedule.windows"
+                    v-for="(slot, idx) in form.backupSchedule.windows"
                     :key="idx"
                     class="mb-2 flex items-center gap-2"
                   >
                     <input
-                      v-model="window.start"
+                      v-model="slot.start"
                       class="form-input flex-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
                       type="time"
                     />
                     <span class="text-sm text-gray-500 dark:text-gray-400">至</span>
                     <input
-                      v-model="window.end"
+                      v-model="slot.end"
                       class="form-input flex-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
                       type="time"
                     />
@@ -3136,18 +3136,18 @@
                   >可调度时段（HH:MM，支持跨天）</label
                 >
                 <div
-                  v-for="(window, idx) in form.backupSchedule.windows"
+                  v-for="(slot, idx) in form.backupSchedule.windows"
                   :key="idx"
                   class="mb-2 flex items-center gap-2"
                 >
                   <input
-                    v-model="window.start"
+                    v-model="slot.start"
                     class="form-input flex-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
                     type="time"
                   />
                   <span class="text-sm text-gray-500 dark:text-gray-400">至</span>
                   <input
-                    v-model="window.end"
+                    v-model="slot.end"
                     class="form-input flex-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
                     type="time"
                   />
