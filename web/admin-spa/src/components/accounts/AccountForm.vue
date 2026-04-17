@@ -3107,6 +3107,7 @@
                 v-model="form.isBackupAccount"
                 class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
                 type="checkbox"
+                @change="ensureBackupScheduleInitialized"
               />
               <span class="text-sm font-semibold text-gray-700 dark:text-gray-300"
                 >设为备用账户</span
@@ -3117,7 +3118,7 @@
               备用账户只在指定的每日时段才参与共享池调度；时段外自动退出（专属绑定同样生效）。
             </p>
             <div
-              v-if="form.isBackupAccount"
+              v-if="form.isBackupAccount && form.backupSchedule"
               class="space-y-3 rounded-lg border border-blue-200 bg-blue-50/50 p-4 dark:border-blue-800 dark:bg-blue-900/20"
             >
               <div>
@@ -4460,6 +4461,36 @@ const normalizeAccountCooldownOverride = (value) => {
 
 const toFormBoolean = (value) => value === true || value === 'true'
 
+// 备用账户时段：归一化为 { timezone, windows } 结构，兜底所有异常输入
+const normalizeBackupScheduleForForm = (raw) => {
+  const DEFAULT = { timezone: 'Asia/Shanghai', windows: [] }
+  if (!raw) return DEFAULT
+  let parsed = raw
+  if (typeof raw === 'string') {
+    try {
+      parsed = JSON.parse(raw)
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[AccountForm] backupSchedule JSON 解析失败，原值：${raw}。已退回默认配置。`,
+        err
+      )
+      return DEFAULT
+    }
+  }
+  // JSON.parse 可能返回 null / 数字 / 字符串，需要进一步守护
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return DEFAULT
+  }
+  return {
+    timezone:
+      typeof parsed.timezone === 'string' && parsed.timezone ? parsed.timezone : 'Asia/Shanghai',
+    windows: Array.isArray(parsed.windows)
+      ? parsed.windows.filter((w) => w && typeof w === 'object')
+      : []
+  }
+}
+
 // 表单数据
 const form = ref({
   platform: props.account?.platform || 'claude',
@@ -4532,26 +4563,7 @@ const form = ref({
   maxConcurrentTasks: props.account?.maxConcurrentTasks || 0,
   // 备用账户相关
   isBackupAccount: props.account?.isBackupAccount === true,
-  backupSchedule: (() => {
-    const raw = props.account?.backupSchedule
-    if (!raw) return { timezone: 'Asia/Shanghai', windows: [] }
-    if (typeof raw === 'string') {
-      try {
-        return JSON.parse(raw)
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.warn(
-          `[AccountForm] 账户 ${props.account?.id || '(未知)'} 的 backupSchedule 解析失败，原值：${raw}。已退回默认配置，请在保存前重新配置时段，否则会覆盖原有数据。`,
-          err
-        )
-        return { timezone: 'Asia/Shanghai', windows: [] }
-      }
-    }
-    return {
-      timezone: raw.timezone || 'Asia/Shanghai',
-      windows: Array.isArray(raw.windows) ? raw.windows : []
-    }
-  })(),
+  backupSchedule: normalizeBackupScheduleForForm(props.account?.backupSchedule),
   // Bedrock 特定字段
   credentialType: props.account?.credentialType || 'access_key', // 'access_key' 或 'bearer_token'
   accessKeyId: props.account?.accessKeyId || '',
@@ -4818,6 +4830,22 @@ const isEditingDroidApiKey = computed(() => {
 
   return method.trim().toLowerCase() === 'api_key'
 })
+
+// 勾选"设为备用账户"时兜底初始化 backupSchedule，防止任何异常情况下出现 undefined
+const ensureBackupScheduleInitialized = () => {
+  if (!form.value.isBackupAccount) return
+  const current = form.value.backupSchedule
+  if (!current || typeof current !== 'object' || Array.isArray(current)) {
+    form.value.backupSchedule = { timezone: 'Asia/Shanghai', windows: [] }
+    return
+  }
+  if (typeof current.timezone !== 'string') {
+    form.value.backupSchedule.timezone = 'Asia/Shanghai'
+  }
+  if (!Array.isArray(current.windows)) {
+    form.value.backupSchedule.windows = []
+  }
+}
 
 // 加载账户今日使用情况
 const loadAccountUsage = async () => {
