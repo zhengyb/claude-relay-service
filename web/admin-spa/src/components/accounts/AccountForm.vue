@@ -4462,9 +4462,15 @@ const normalizeAccountCooldownOverride = (value) => {
 const toFormBoolean = (value) => value === true || value === 'true'
 
 // 备用账户时段：归一化为 { timezone, windows } 结构，兜底所有异常输入
+// - 时区缺失默认 Asia/Shanghai
+// - 时段缺失或为空默认 00:00-23:59 全天可调度
+const DEFAULT_BACKUP_WINDOW = { start: '00:00', end: '23:59' }
 const normalizeBackupScheduleForForm = (raw) => {
-  const DEFAULT = { timezone: 'Asia/Shanghai', windows: [] }
-  if (!raw) return DEFAULT
+  const buildDefault = () => ({
+    timezone: 'Asia/Shanghai',
+    windows: [{ ...DEFAULT_BACKUP_WINDOW }]
+  })
+  if (!raw) return buildDefault()
   let parsed = raw
   if (typeof raw === 'string') {
     try {
@@ -4475,19 +4481,20 @@ const normalizeBackupScheduleForForm = (raw) => {
         `[AccountForm] backupSchedule JSON 解析失败，原值：${raw}。已退回默认配置。`,
         err
       )
-      return DEFAULT
+      return buildDefault()
     }
   }
   // JSON.parse 可能返回 null / 数字 / 字符串，需要进一步守护
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return DEFAULT
+    return buildDefault()
   }
+  const cleanWindows = Array.isArray(parsed.windows)
+    ? parsed.windows.filter((w) => w && typeof w === 'object')
+    : []
   return {
     timezone:
       typeof parsed.timezone === 'string' && parsed.timezone ? parsed.timezone : 'Asia/Shanghai',
-    windows: Array.isArray(parsed.windows)
-      ? parsed.windows.filter((w) => w && typeof w === 'object')
-      : []
+    windows: cleanWindows.length > 0 ? cleanWindows : [{ ...DEFAULT_BACKUP_WINDOW }]
   }
 }
 
@@ -4832,18 +4839,22 @@ const isEditingDroidApiKey = computed(() => {
 })
 
 // 勾选"设为备用账户"时兜底初始化 backupSchedule，防止任何异常情况下出现 undefined
+// 时区缺失默认 Asia/Shanghai；时段缺失默认全天可调度（00:00-23:59）
 const ensureBackupScheduleInitialized = () => {
   if (!form.value.isBackupAccount) return
   const current = form.value.backupSchedule
   if (!current || typeof current !== 'object' || Array.isArray(current)) {
-    form.value.backupSchedule = { timezone: 'Asia/Shanghai', windows: [] }
+    form.value.backupSchedule = {
+      timezone: 'Asia/Shanghai',
+      windows: [{ ...DEFAULT_BACKUP_WINDOW }]
+    }
     return
   }
-  if (typeof current.timezone !== 'string') {
+  if (typeof current.timezone !== 'string' || !current.timezone) {
     form.value.backupSchedule.timezone = 'Asia/Shanghai'
   }
-  if (!Array.isArray(current.windows)) {
-    form.value.backupSchedule.windows = []
+  if (!Array.isArray(current.windows) || current.windows.length === 0) {
+    form.value.backupSchedule.windows = [{ ...DEFAULT_BACKUP_WINDOW }]
   }
 }
 
