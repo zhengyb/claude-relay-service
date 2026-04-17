@@ -13,6 +13,7 @@ const redis = require('../../models/redis')
 const { authenticateAdmin } = require('../../middleware/auth')
 const logger = require('../../utils/logger')
 const ProxyHelper = require('../../utils/proxyHelper')
+const { validateBackupSchedule } = require('../../utils/backupAccountHelper')
 const webhookNotifier = require('../../utils/webhookNotifier')
 const { formatAccountExpiry, mapExpiryField } = require('./utils')
 
@@ -341,6 +342,13 @@ router.post('/', authenticateAdmin, async (req, res) => {
       })
     }
 
+    if (req.body.backupSchedule !== undefined) {
+      const { valid, error } = validateBackupSchedule(req.body.backupSchedule)
+      if (!valid) {
+        return res.status(400).json({ success: false, error })
+      }
+    }
+
     // 准备账户数据
     const accountData = {
       name,
@@ -353,7 +361,9 @@ router.post('/', authenticateAdmin, async (req, res) => {
       accountInfo: accountInfo || {},
       proxy: proxy || null,
       isActive: true,
-      schedulable: true
+      schedulable: true,
+      isBackupAccount: req.body.isBackupAccount === true,
+      backupSchedule: req.body.backupSchedule || null
     }
 
     // 如果需要立即刷新且必须成功（OpenAI 手动模式）
@@ -505,6 +515,14 @@ router.put('/:id', authenticateAdmin, async (req, res) => {
       return res
         .status(400)
         .json({ error: 'Group ID or Group IDs are required for group type accounts' })
+    }
+
+    // 备用账户时段校验
+    if (mappedUpdates.backupSchedule !== undefined) {
+      const { valid, error } = validateBackupSchedule(mappedUpdates.backupSchedule)
+      if (!valid) {
+        return res.status(400).json({ error })
+      }
     }
 
     // 获取账户当前信息以处理分组变更

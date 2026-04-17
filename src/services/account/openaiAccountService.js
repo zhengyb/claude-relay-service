@@ -15,6 +15,11 @@ const {
 } = require('../../utils/tokenRefreshLogger')
 const tokenRefreshService = require('../tokenRefreshService')
 const { createEncryptor } = require('../../utils/commonHelper')
+const {
+  serializeBackupFields,
+  readBackupFields,
+  normalizeBackupSchedule
+} = require('../../utils/backupAccountHelper')
 
 // 使用 commonHelper 的加密器
 const encryptor = createEncryptor('openai-account-salt')
@@ -502,6 +507,13 @@ async function createAccount(accountData) {
       accountData.disableAutoProtection === true || accountData.disableAutoProtection === 'true'
         ? 'true'
         : 'false',
+
+    // 备用账户相关
+    ...serializeBackupFields({
+      isBackupAccount: accountData.isBackupAccount,
+      backupSchedule: accountData.backupSchedule
+    }),
+
     lastRefresh: now,
     createdAt: now,
     updatedAt: now
@@ -566,6 +578,13 @@ async function getAccount(accountId) {
     }
   }
 
+  // 备用账户相关
+  {
+    const _backup = readBackupFields(accountData)
+    accountData.isBackupAccount = _backup.isBackupAccount
+    accountData.backupSchedule = _backup.backupSchedule
+  }
+
   return accountData
 }
 
@@ -617,6 +636,16 @@ async function updateAccount(accountId, updates) {
       updates.disableAutoProtection === true || updates.disableAutoProtection === 'true'
         ? 'true'
         : 'false'
+  }
+
+  // 备用账户相关
+  if (updates.isBackupAccount !== undefined) {
+    updates.isBackupAccount =
+      updates.isBackupAccount === true || updates.isBackupAccount === 'true' ? 'true' : 'false'
+  }
+  if (updates.backupSchedule !== undefined) {
+    const normalized = normalizeBackupSchedule(updates.backupSchedule)
+    updates.backupSchedule = normalized ? JSON.stringify(normalized) : ''
   }
 
   // 更新账户类型时处理共享账户集合
@@ -740,11 +769,16 @@ async function getAllAccounts() {
           ? accountData.subscriptionExpiresAt
           : null
 
+      // 备用账户字段解析
+      const backupFields = readBackupFields(accountData)
+
       // 不解密敏感字段，只返回基本信息
       accounts.push({
         ...accountData,
         isActive: accountData.isActive === 'true',
         schedulable: accountData.schedulable !== 'false',
+        isBackupAccount: backupFields.isBackupAccount,
+        backupSchedule: backupFields.backupSchedule,
         openaiOauth: maskedOauth,
         accessToken: maskedAccessToken,
         refreshToken: maskedRefreshToken,

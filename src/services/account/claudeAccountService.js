@@ -23,6 +23,11 @@ const {
   normalizeOptionalNonNegativeInteger,
   normalizeTempUnavailablePolicyInput
 } = require('../../utils/tempUnavailablePolicy')
+const {
+  serializeBackupFields,
+  readBackupFields,
+  normalizeBackupSchedule
+} = require('../../utils/backupAccountHelper')
 
 /**
  * Check if account is Pro (not Max)
@@ -102,7 +107,9 @@ class ClaudeAccountService {
       interceptWarmup = false, // 拦截预热请求（标题生成、Warmup等）
       disableTempUnavailable = false, // 是否禁用账号级临时冷却（temp_unavailable）
       tempUnavailable503TtlSeconds = null, // 账号级 503 冷却秒数（null 跟随全局）
-      tempUnavailable5xxTtlSeconds = null // 账号级 5xx 冷却秒数（null 跟随全局）
+      tempUnavailable5xxTtlSeconds = null, // 账号级 5xx 冷却秒数（null 跟随全局）
+      isBackupAccount = false, // 备用账户：只在指定时段参与共享池调度
+      backupSchedule = null // 备用账户时段配置 { timezone, windows: [{start, end}] }
     } = options
 
     const accountId = uuidv4()
@@ -162,7 +169,9 @@ class ClaudeAccountService {
         // 账号级临时冷却覆盖（空字符串表示跟随全局配置）
         disableTempUnavailable: normalizedTempUnavailablePolicy.disableTempUnavailable.toString(),
         tempUnavailable503TtlSeconds: normalized503Ttl !== null ? normalized503Ttl.toString() : '',
-        tempUnavailable5xxTtlSeconds: normalized5xxTtl !== null ? normalized5xxTtl.toString() : ''
+        tempUnavailable5xxTtlSeconds: normalized5xxTtl !== null ? normalized5xxTtl.toString() : '',
+        // 备用账户相关字段
+        ...serializeBackupFields({ isBackupAccount, backupSchedule })
       }
     } else {
       // 兼容旧格式
@@ -202,7 +211,9 @@ class ClaudeAccountService {
         // 账号级临时冷却覆盖（空字符串表示跟随全局配置）
         disableTempUnavailable: normalizedTempUnavailablePolicy.disableTempUnavailable.toString(),
         tempUnavailable503TtlSeconds: normalized503Ttl !== null ? normalized503Ttl.toString() : '',
-        tempUnavailable5xxTtlSeconds: normalized5xxTtl !== null ? normalized5xxTtl.toString() : ''
+        tempUnavailable5xxTtlSeconds: normalized5xxTtl !== null ? normalized5xxTtl.toString() : '',
+        // 备用账户相关字段
+        ...serializeBackupFields({ isBackupAccount, backupSchedule })
       }
     }
 
@@ -656,7 +667,9 @@ class ClaudeAccountService {
             tempUnavailable503TtlSeconds:
               normalizedTempUnavailablePolicy.tempUnavailable503TtlSeconds,
             tempUnavailable5xxTtlSeconds:
-              normalizedTempUnavailablePolicy.tempUnavailable5xxTtlSeconds
+              normalizedTempUnavailablePolicy.tempUnavailable5xxTtlSeconds,
+            // 备用账户相关
+            ...readBackupFields(account)
           }
         })
       )
@@ -713,7 +726,8 @@ class ClaudeAccountService {
         isActive: accountData.isActive === 'true',
         schedulable: accountData.schedulable !== 'false',
         sessionWindow,
-        rateLimitStatus
+        rateLimitStatus,
+        ...readBackupFields(accountData)
       }
     } catch (error) {
       logger.error(`❌ Failed to build Claude account overview for ${accountId}:`, error)
@@ -753,7 +767,9 @@ class ClaudeAccountService {
         'interceptWarmup',
         'disableTempUnavailable',
         'tempUnavailable503TtlSeconds',
-        'tempUnavailable5xxTtlSeconds'
+        'tempUnavailable5xxTtlSeconds',
+        'isBackupAccount',
+        'backupSchedule'
       ]
       const updatedData = { ...accountData }
       let shouldClearAutoStopFields = false
@@ -772,6 +788,11 @@ class ClaudeAccountService {
             updatedData[field] = value.toString()
           } else if (field === 'disableTempUnavailable') {
             updatedData[field] = parseBooleanLike(value) ? 'true' : 'false'
+          } else if (field === 'isBackupAccount') {
+            updatedData[field] = parseBooleanLike(value) ? 'true' : 'false'
+          } else if (field === 'backupSchedule') {
+            const normalized = normalizeBackupSchedule(value)
+            updatedData[field] = normalized ? JSON.stringify(normalized) : ''
           } else if (
             field === 'tempUnavailable503TtlSeconds' ||
             field === 'tempUnavailable5xxTtlSeconds'

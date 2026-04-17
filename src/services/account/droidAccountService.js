@@ -7,6 +7,11 @@ const { maskToken } = require('../../utils/tokenMask')
 const ProxyHelper = require('../../utils/proxyHelper')
 const { createEncryptor, isTruthy } = require('../../utils/commonHelper')
 const upstreamErrorHelper = require('../../utils/upstreamErrorHelper')
+const {
+  serializeBackupFields,
+  readBackupFields,
+  normalizeBackupSchedule
+} = require('../../utils/backupAccountHelper')
 
 /**
  * Droid 账户管理服务
@@ -478,7 +483,9 @@ class DroidAccountService {
       expiresIn = null,
       apiKeys = [],
       userAgent = '', // 自定义 User-Agent
-      disableAutoProtection = false // 是否关闭自动防护（429/401/400/529 不自动禁用）
+      disableAutoProtection = false, // 是否关闭自动防护（429/401/400/529 不自动禁用）
+      isBackupAccount = false, // 备用账户：只在指定时段参与共享池调度
+      backupSchedule = null // 备用账户时段配置
     } = options
 
     const accountId = uuidv4()
@@ -756,7 +763,9 @@ class DroidAccountService {
       apiKeyCount: hasApiKeys ? String(apiKeyEntries.length) : '0',
       apiKeyStrategy: hasApiKeys ? 'random_sticky' : '',
       userAgent: userAgent || '', // 自定义 User-Agent
-      disableAutoProtection: disableAutoProtection.toString() // 关闭自动防护
+      disableAutoProtection: disableAutoProtection.toString(), // 关闭自动防护
+      // 备用账户相关字段
+      ...serializeBackupFields({ isBackupAccount, backupSchedule })
     }
 
     await redis.setDroidAccount(accountId, accountData)
@@ -797,7 +806,8 @@ class DroidAccountService {
       refreshToken: this._decryptSensitiveData(account.refreshToken),
       accessToken: this._decryptSensitiveData(account.accessToken),
       apiKeys: this._maskApiKeyEntries(apiKeyEntries),
-      apiKeyCount: apiKeyEntries.length
+      apiKeyCount: apiKeyEntries.length,
+      ...readBackupFields(account)
     }
   }
 
@@ -826,7 +836,8 @@ class DroidAccountService {
         }
         const numeric = Number(account.apiKeyCount)
         return Number.isFinite(numeric) && numeric >= 0 ? numeric : parsedCount
-      })()
+      })(),
+      ...readBackupFields(account)
     }))
   }
 
@@ -972,6 +983,18 @@ class DroidAccountService {
 
     if (sanitizedUpdates.proxy === undefined) {
       sanitizedUpdates.proxy = account.proxy || ''
+    }
+
+    // 备用账户相关
+    if (sanitizedUpdates.isBackupAccount !== undefined) {
+      sanitizedUpdates.isBackupAccount =
+        sanitizedUpdates.isBackupAccount === true || sanitizedUpdates.isBackupAccount === 'true'
+          ? 'true'
+          : 'false'
+    }
+    if (sanitizedUpdates.backupSchedule !== undefined) {
+      const normalized = normalizeBackupSchedule(sanitizedUpdates.backupSchedule)
+      sanitizedUpdates.backupSchedule = normalized ? JSON.stringify(normalized) : ''
     }
 
     // 使用 Redis 中的原始数据获取加密的 API Key 条目

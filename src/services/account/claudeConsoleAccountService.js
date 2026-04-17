@@ -6,6 +6,11 @@ const logger = require('../../utils/logger')
 const config = require('../../../config/config')
 const LRUCache = require('../../utils/lruCache')
 const upstreamErrorHelper = require('../../utils/upstreamErrorHelper')
+const {
+  serializeBackupFields,
+  readBackupFields,
+  normalizeBackupSchedule
+} = require('../../utils/backupAccountHelper')
 
 class ClaudeConsoleAccountService {
   constructor() {
@@ -70,7 +75,9 @@ class ClaudeConsoleAccountService {
       quotaResetTime = '00:00', // 额度重置时间（HH:mm格式）
       maxConcurrentTasks = 0, // 最大并发任务数，0表示无限制
       disableAutoProtection = false, // 是否关闭自动防护（429/401/400/529 不自动禁用）
-      interceptWarmup = false // 拦截预热请求（标题生成、Warmup等）
+      interceptWarmup = false, // 拦截预热请求（标题生成、Warmup等）
+      isBackupAccount = false, // 备用账户：只在指定时段参与共享池调度
+      backupSchedule = null // 备用账户时段配置
     } = options
 
     // 验证必填字段
@@ -120,7 +127,9 @@ class ClaudeConsoleAccountService {
       quotaStoppedAt: '', // 因额度停用的时间
       maxConcurrentTasks: maxConcurrentTasks.toString(), // 最大并发任务数，0表示无限制
       disableAutoProtection: disableAutoProtection.toString(), // 关闭自动防护
-      interceptWarmup: interceptWarmup.toString() // 拦截预热请求
+      interceptWarmup: interceptWarmup.toString(), // 拦截预热请求
+      // 备用账户相关字段
+      ...serializeBackupFields({ isBackupAccount, backupSchedule })
     }
 
     const client = redis.getClientSafe()
@@ -231,7 +240,9 @@ class ClaudeConsoleAccountService {
             activeTaskCount,
             disableAutoProtection: accountData.disableAutoProtection === 'true',
             // 拦截预热请求
-            interceptWarmup: accountData.interceptWarmup === 'true'
+            interceptWarmup: accountData.interceptWarmup === 'true',
+            // 备用账户相关
+            ...readBackupFields(accountData)
           })
         }
       }
@@ -278,6 +289,10 @@ class ClaudeConsoleAccountService {
     accountData.isActive = accountData.isActive === 'true'
     accountData.schedulable = accountData.schedulable !== 'false' // 默认为true
     accountData.disableAutoProtection = accountData.disableAutoProtection === 'true'
+    // 备用账户相关：保留原始字段用于 scheduler（支持字符串/对象），同时提供 parsed 版本给前端
+    const _backup = readBackupFields(accountData)
+    accountData.isBackupAccount = _backup.isBackupAccount
+    accountData.backupSchedule = _backup.backupSchedule
 
     if (accountData.proxy) {
       accountData.proxy = JSON.parse(accountData.proxy)
@@ -391,6 +406,14 @@ class ClaudeConsoleAccountService {
       }
       if (updates.interceptWarmup !== undefined) {
         updatedData.interceptWarmup = updates.interceptWarmup.toString()
+      }
+      if (updates.isBackupAccount !== undefined) {
+        updatedData.isBackupAccount =
+          updates.isBackupAccount === true || updates.isBackupAccount === 'true' ? 'true' : 'false'
+      }
+      if (updates.backupSchedule !== undefined) {
+        const normalized = normalizeBackupSchedule(updates.backupSchedule)
+        updatedData.backupSchedule = normalized ? JSON.stringify(normalized) : ''
       }
 
       // ✅ 直接保存 subscriptionExpiresAt（如果提供）

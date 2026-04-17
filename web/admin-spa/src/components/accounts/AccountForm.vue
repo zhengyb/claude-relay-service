@@ -1999,6 +1999,84 @@
               </p>
             </div>
 
+            <!-- 备用账户（所有平台通用） -->
+            <div>
+              <label class="mb-3 flex items-center gap-3">
+                <input
+                  v-model="form.isBackupAccount"
+                  type="checkbox"
+                  class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
+                />
+                <span class="text-sm font-semibold text-gray-700 dark:text-gray-300"
+                  >设为备用账户</span
+                >
+              </label>
+              <p class="mb-3 text-xs text-gray-500 dark:text-gray-400">
+                <i class="fas fa-info-circle mr-1 text-blue-500" />
+                备用账户只在指定的每日时段才参与共享池调度；时段外自动退出（专属绑定同样生效）。
+              </p>
+              <div
+                v-if="form.isBackupAccount"
+                class="space-y-3 rounded-lg border border-blue-200 bg-blue-50/50 p-4 dark:border-blue-800 dark:bg-blue-900/20"
+              >
+                <div>
+                  <label class="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300"
+                    >时区 (IANA)</label
+                  >
+                  <input
+                    v-model="form.backupSchedule.timezone"
+                    type="text"
+                    placeholder="例如：Asia/Shanghai、UTC、America/Los_Angeles"
+                    class="form-input w-full text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                  />
+                </div>
+                <div>
+                  <label class="mb-2 block text-xs font-medium text-gray-700 dark:text-gray-300"
+                    >可调度时段（HH:MM，支持跨天）</label
+                  >
+                  <div
+                    v-for="(window, idx) in form.backupSchedule.windows"
+                    :key="idx"
+                    class="mb-2 flex items-center gap-2"
+                  >
+                    <input
+                      v-model="window.start"
+                      type="time"
+                      class="form-input flex-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                    />
+                    <span class="text-sm text-gray-500 dark:text-gray-400">至</span>
+                    <input
+                      v-model="window.end"
+                      type="time"
+                      class="form-input flex-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                    />
+                    <button
+                      type="button"
+                      class="rounded p-2 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/30"
+                      @click="form.backupSchedule.windows.splice(idx, 1)"
+                    >
+                      <i class="fas fa-trash" />
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    class="mt-1 text-xs font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400"
+                    @click="form.backupSchedule.windows.push({ start: '22:00', end: '06:00' })"
+                  >
+                    <i class="fas fa-plus mr-1" />添加时段
+                  </button>
+                </div>
+                <p
+                  v-if="!form.backupSchedule.windows.length"
+                  class="text-xs text-amber-600 dark:text-amber-400"
+                >
+                  <i
+                    class="fas fa-exclamation-triangle mr-1"
+                  />未配置任何时段，该账户将始终不被调度。
+                </p>
+              </div>
+            </div>
+
             <!-- 手动输入 Token 字段 -->
             <div
               v-if="
@@ -4376,6 +4454,28 @@ const form = ref({
   quotaResetTime: props.account?.quotaResetTime || '00:00',
   // 并发控制字段
   maxConcurrentTasks: props.account?.maxConcurrentTasks || 0,
+  // 备用账户相关
+  isBackupAccount: props.account?.isBackupAccount === true,
+  backupSchedule: (() => {
+    const raw = props.account?.backupSchedule
+    if (!raw) return { timezone: 'Asia/Shanghai', windows: [] }
+    if (typeof raw === 'string') {
+      try {
+        return JSON.parse(raw)
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[AccountForm] 账户 ${props.account?.id || '(未知)'} 的 backupSchedule 解析失败，原值：${raw}。已退回默认配置，请在保存前重新配置时段，否则会覆盖原有数据。`,
+          err
+        )
+        return { timezone: 'Asia/Shanghai', windows: [] }
+      }
+    }
+    return {
+      timezone: raw.timezone || 'Asia/Shanghai',
+      windows: Array.isArray(raw.windows) ? raw.windows : []
+    }
+  })(),
   // Bedrock 特定字段
   credentialType: props.account?.credentialType || 'access_key', // 'access_key' 或 'bearer_token'
   accessKeyId: props.account?.accessKeyId || '',
@@ -4938,6 +5038,8 @@ const buildClaudeAccountData = (tokenInfo, accountName, clientId) => {
     proxy: proxyPayload,
     claudeAiOauth: claudeOauthPayload,
     priority: form.value.priority || 50,
+    isBackupAccount: form.value.isBackupAccount === true,
+    backupSchedule: form.value.isBackupAccount === true ? form.value.backupSchedule : null,
     autoStopOnWarning: form.value.autoStopOnWarning || false,
     interceptWarmup: form.value.interceptWarmup || false,
     useUnifiedUserAgent: form.value.useUnifiedUserAgent || false,
@@ -5077,6 +5179,8 @@ const handleOAuthSuccess = async (tokenInfoOrList) => {
         }
       }
       data.priority = form.value.priority || 50
+      data.isBackupAccount = form.value.isBackupAccount === true
+      data.backupSchedule = form.value.isBackupAccount === true ? form.value.backupSchedule : null
       data.autoStopOnWarning = form.value.autoStopOnWarning || false
       data.useUnifiedUserAgent = form.value.useUnifiedUserAgent || false
       data.useUnifiedClientId = form.value.useUnifiedClientId || false
@@ -5103,10 +5207,14 @@ const handleOAuthSuccess = async (tokenInfoOrList) => {
       }
       // 添加 Gemini 优先级
       data.priority = form.value.priority || 50
+      data.isBackupAccount = form.value.isBackupAccount === true
+      data.backupSchedule = form.value.isBackupAccount === true ? form.value.backupSchedule : null
     } else if (currentPlatform === 'openai') {
       data.openaiOauth = tokenInfo.tokens || tokenInfo
       data.accountInfo = tokenInfo.accountInfo
       data.priority = form.value.priority || 50
+      data.isBackupAccount = form.value.isBackupAccount === true
+      data.backupSchedule = form.value.isBackupAccount === true ? form.value.backupSchedule : null
     } else if (currentPlatform === 'droid') {
       const rawTokens = tokenInfo.tokens || tokenInfo || {}
 
@@ -5134,6 +5242,8 @@ const handleOAuthSuccess = async (tokenInfoOrList) => {
         data.expiresIn = normalizedTokens.expiresIn
       }
       data.priority = form.value.priority || 50
+      data.isBackupAccount = form.value.isBackupAccount === true
+      data.backupSchedule = form.value.isBackupAccount === true ? form.value.backupSchedule : null
       data.endpointType = form.value.endpointType || 'anthropic'
       data.platform = 'droid'
       data.tokenType = normalizedTokens.tokenType
@@ -5416,6 +5526,8 @@ const createAccount = async () => {
         scopes: [] // 手动添加没有 scopes
       }
       data.priority = form.value.priority || 50
+      data.isBackupAccount = form.value.isBackupAccount === true
+      data.backupSchedule = form.value.isBackupAccount === true ? form.value.backupSchedule : null
       data.autoStopOnWarning = form.value.autoStopOnWarning || false
       data.useUnifiedUserAgent = form.value.useUnifiedUserAgent || false
       data.useUnifiedClientId = form.value.useUnifiedClientId || false
@@ -5448,6 +5560,8 @@ const createAccount = async () => {
 
       // 添加 Gemini 优先级
       data.priority = form.value.priority || 50
+      data.isBackupAccount = form.value.isBackupAccount === true
+      data.backupSchedule = form.value.isBackupAccount === true ? form.value.backupSchedule : null
     } else if (form.value.platform === 'openai') {
       // OpenAI手动模式需要构建openaiOauth对象
       const expiresInMs = form.value.refreshToken
@@ -5477,8 +5591,12 @@ const createAccount = async () => {
       data.needsImmediateRefresh = true
       data.requireRefreshSuccess = true // 必须刷新成功才能创建账户
       data.priority = form.value.priority || 50
+      data.isBackupAccount = form.value.isBackupAccount === true
+      data.backupSchedule = form.value.isBackupAccount === true ? form.value.backupSchedule : null
     } else if (form.value.platform === 'droid') {
       data.priority = form.value.priority || 50
+      data.isBackupAccount = form.value.isBackupAccount === true
+      data.backupSchedule = form.value.isBackupAccount === true ? form.value.backupSchedule : null
       data.endpointType = form.value.endpointType || 'anthropic'
       data.platform = 'droid'
 
@@ -5505,6 +5623,8 @@ const createAccount = async () => {
       data.apiUrl = form.value.apiUrl
       data.apiKey = form.value.apiKey
       data.priority = form.value.priority || 50
+      data.isBackupAccount = form.value.isBackupAccount === true
+      data.backupSchedule = form.value.isBackupAccount === true ? form.value.backupSchedule : null
       data.supportedModels = convertMappingsToObject() || {}
       data.userAgent = form.value.userAgent || null
       // 如果不启用限流，传递 0 表示不限流
@@ -5524,6 +5644,8 @@ const createAccount = async () => {
       data.userAgent = form.value.userAgent || ''
       data.providerEndpoint = form.value.providerEndpoint || 'responses'
       data.priority = form.value.priority || 50
+      data.isBackupAccount = form.value.isBackupAccount === true
+      data.backupSchedule = form.value.isBackupAccount === true ? form.value.backupSchedule : null
       data.rateLimitDuration = 60 // 默认值60，不从用户输入获取
       data.dailyQuota = form.value.dailyQuota || 0
       data.quotaResetTime = form.value.quotaResetTime || '00:00'
@@ -5531,11 +5653,15 @@ const createAccount = async () => {
       // Antigravity OAuth - set oauthProvider, submission happens below
       data.oauthProvider = 'antigravity'
       data.priority = form.value.priority || 50
+      data.isBackupAccount = form.value.isBackupAccount === true
+      data.backupSchedule = form.value.isBackupAccount === true ? form.value.backupSchedule : null
     } else if (form.value.platform === 'gemini-api') {
       // Gemini API 账户特定数据
       data.baseUrl = form.value.baseUrl || 'https://generativelanguage.googleapis.com'
       data.apiKey = form.value.apiKey
       data.priority = form.value.priority || 50
+      data.isBackupAccount = form.value.isBackupAccount === true
+      data.backupSchedule = form.value.isBackupAccount === true ? form.value.backupSchedule : null
       data.supportedModels = Array.isArray(form.value.supportedModels)
         ? form.value.supportedModels
         : []
@@ -5559,6 +5685,8 @@ const createAccount = async () => {
       data.defaultModel = form.value.defaultModel || null
       data.smallFastModel = form.value.smallFastModel || null
       data.priority = form.value.priority || 50
+      data.isBackupAccount = form.value.isBackupAccount === true
+      data.backupSchedule = form.value.isBackupAccount === true ? form.value.backupSchedule : null
       // 如果不启用限流，传递 0 表示不限流
       data.rateLimitDuration = form.value.enableRateLimit ? form.value.rateLimitDuration || 60 : 0
     } else if (form.value.platform === 'azure_openai') {
@@ -5571,6 +5699,8 @@ const createAccount = async () => {
         ? form.value.supportedModels
         : []
       data.priority = form.value.priority || 50
+      data.isBackupAccount = form.value.isBackupAccount === true
+      data.backupSchedule = form.value.isBackupAccount === true ? form.value.backupSchedule : null
       data.isActive = form.value.isActive !== false
       data.schedulable = form.value.schedulable !== false
     }
@@ -5810,6 +5940,8 @@ const updateAccount = async () => {
 
     if (props.account.platform === 'droid') {
       data.priority = form.value.priority || 50
+      data.isBackupAccount = form.value.isBackupAccount === true
+      data.backupSchedule = form.value.isBackupAccount === true ? form.value.backupSchedule : null
       data.endpointType = form.value.endpointType || 'anthropic'
     }
 
@@ -5821,6 +5953,8 @@ const updateAccount = async () => {
       }
 
       data.priority = form.value.priority || 50
+      data.isBackupAccount = form.value.isBackupAccount === true
+      data.backupSchedule = form.value.isBackupAccount === true ? form.value.backupSchedule : null
       data.autoStopOnWarning = form.value.autoStopOnWarning || false
       data.interceptWarmup = form.value.interceptWarmup || false
       data.useUnifiedUserAgent = form.value.useUnifiedUserAgent || false
@@ -5840,11 +5974,15 @@ const updateAccount = async () => {
     // OpenAI 账号优先级更新
     if (props.account.platform === 'openai') {
       data.priority = form.value.priority || 50
+      data.isBackupAccount = form.value.isBackupAccount === true
+      data.backupSchedule = form.value.isBackupAccount === true ? form.value.backupSchedule : null
     }
 
     // Gemini 账号优先级更新
     if (props.account.platform === 'gemini') {
       data.priority = form.value.priority || 50
+      data.isBackupAccount = form.value.isBackupAccount === true
+      data.backupSchedule = form.value.isBackupAccount === true ? form.value.backupSchedule : null
     }
 
     // Claude Console 特定更新
@@ -5854,6 +5992,8 @@ const updateAccount = async () => {
         data.apiKey = form.value.apiKey
       }
       data.priority = form.value.priority || 50
+      data.isBackupAccount = form.value.isBackupAccount === true
+      data.backupSchedule = form.value.isBackupAccount === true ? form.value.backupSchedule : null
       data.supportedModels = convertMappingsToObject() || {}
       data.userAgent = form.value.userAgent || null
       // 如果不启用限流，传递 0 表示不限流
@@ -5876,6 +6016,8 @@ const updateAccount = async () => {
       data.userAgent = form.value.userAgent || ''
       data.providerEndpoint = form.value.providerEndpoint || 'responses'
       data.priority = form.value.priority || 50
+      data.isBackupAccount = form.value.isBackupAccount === true
+      data.backupSchedule = form.value.isBackupAccount === true ? form.value.backupSchedule : null
       // 编辑时不上传 rateLimitDuration，保持原值
       data.dailyQuota = form.value.dailyQuota || 0
       data.quotaResetTime = form.value.quotaResetTime || '00:00'
@@ -5917,6 +6059,8 @@ const updateAccount = async () => {
       data.defaultModel = form.value.defaultModel || null
       data.smallFastModel = form.value.smallFastModel || null
       data.priority = form.value.priority || 50
+      data.isBackupAccount = form.value.isBackupAccount === true
+      data.backupSchedule = form.value.isBackupAccount === true ? form.value.backupSchedule : null
       // 如果不启用限流，传递 0 表示不限流
       data.rateLimitDuration = form.value.enableRateLimit ? form.value.rateLimitDuration || 60 : 0
     }
@@ -5930,6 +6074,8 @@ const updateAccount = async () => {
         ? form.value.supportedModels
         : []
       data.priority = form.value.priority || 50
+      data.isBackupAccount = form.value.isBackupAccount === true
+      data.backupSchedule = form.value.isBackupAccount === true ? form.value.backupSchedule : null
       // 只有当有新的 API Key 时才更新
       if (form.value.apiKey && form.value.apiKey.trim()) {
         data.apiKey = form.value.apiKey
@@ -5944,6 +6090,8 @@ const updateAccount = async () => {
         data.apiKey = form.value.apiKey
       }
       data.priority = form.value.priority || 50
+      data.isBackupAccount = form.value.isBackupAccount === true
+      data.backupSchedule = form.value.isBackupAccount === true ? form.value.backupSchedule : null
       data.supportedModels = Array.isArray(form.value.supportedModels)
         ? form.value.supportedModels
         : []

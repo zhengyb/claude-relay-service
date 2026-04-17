@@ -6,6 +6,7 @@ const redis = require('../../models/redis')
 const { authenticateAdmin } = require('../../middleware/auth')
 const logger = require('../../utils/logger')
 const webhookNotifier = require('../../utils/webhookNotifier')
+const { validateBackupSchedule } = require('../../utils/backupAccountHelper')
 
 const router = express.Router()
 
@@ -162,6 +163,13 @@ router.post('/gemini-api-accounts', authenticateAdmin, async (req, res) => {
       })
     }
 
+    if (req.body.backupSchedule !== undefined) {
+      const { valid, error } = validateBackupSchedule(req.body.backupSchedule)
+      if (!valid) {
+        return res.status(400).json({ success: false, error })
+      }
+    }
+
     const account = await geminiApiAccountService.createAccount(req.body)
 
     // 如果是分组类型，将账户添加到分组
@@ -229,6 +237,14 @@ router.put('/gemini-api-accounts/:id', authenticateAdmin, async (req, res) => {
           success: false,
           message: 'Priority must be a number between 1 and 100'
         })
+      }
+    }
+
+    // 备用账户时段校验
+    if (updates.backupSchedule !== undefined) {
+      const { valid, error } = validateBackupSchedule(updates.backupSchedule)
+      if (!valid) {
+        return res.status(400).json({ success: false, error })
       }
     }
 

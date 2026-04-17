@@ -7,6 +7,7 @@ const redis = require('../../models/redis')
 const logger = require('../../utils/logger')
 const { parseVendorPrefixedModel, isOpus45OrNewer } = require('../../utils/modelHelper')
 const { isSchedulable, sortAccountsByPriority } = require('../../utils/commonHelper')
+const { isAccountInBackupWindow } = require('../../utils/backupAccountHelper')
 const upstreamErrorHelper = require('../../utils/upstreamErrorHelper')
 const webhookNotifier = require('../../utils/webhookNotifier')
 const { getISOStringWithTimezone } = require('../../utils/dateHelper')
@@ -304,9 +305,12 @@ class UnifiedClaudeScheduler {
               throw error
             }
 
-            if (!isSchedulable(boundAccount.schedulable)) {
+            if (
+              !isSchedulable(boundAccount.schedulable) ||
+              !isAccountInBackupWindow(boundAccount)
+            ) {
               logger.warn(
-                `⚠️ Bound Claude OAuth account ${apiKeyData.claudeAccountId} is not schedulable (schedulable: ${boundAccount?.schedulable}), falling back to pool`
+                `⚠️ Bound Claude OAuth account ${apiKeyData.claudeAccountId} is not schedulable (schedulable: ${boundAccount?.schedulable}, backupWindow: ${isAccountInBackupWindow(boundAccount)}), falling back to pool`
               )
             } else {
               if (isOpusRequest) {
@@ -337,7 +341,8 @@ class UnifiedClaudeScheduler {
           boundConsoleAccount &&
           boundConsoleAccount.isActive === true &&
           boundConsoleAccount.status === 'active' &&
-          isSchedulable(boundConsoleAccount.schedulable)
+          isSchedulable(boundConsoleAccount.schedulable) &&
+          isAccountInBackupWindow(boundConsoleAccount)
         ) {
           // 检查是否临时不可用
           const isTempUnavailable = await this.isAccountTemporarilyUnavailable(
@@ -372,7 +377,8 @@ class UnifiedClaudeScheduler {
         if (
           boundBedrockAccountResult.success &&
           boundBedrockAccountResult.data.isActive === true &&
-          isSchedulable(boundBedrockAccountResult.data.schedulable)
+          isSchedulable(boundBedrockAccountResult.data.schedulable) &&
+          isAccountInBackupWindow(boundBedrockAccountResult.data)
         ) {
           // 检查是否临时不可用
           const isTempUnavailable = await this.isAccountTemporarilyUnavailable(
@@ -534,9 +540,9 @@ class UnifiedClaudeScheduler {
             throw error
           }
 
-          if (!isSchedulable(boundAccount.schedulable)) {
+          if (!isSchedulable(boundAccount.schedulable) || !isAccountInBackupWindow(boundAccount)) {
             logger.warn(
-              `⚠️ Bound Claude OAuth account ${apiKeyData.claudeAccountId} is not schedulable (schedulable: ${boundAccount?.schedulable})`
+              `⚠️ Bound Claude OAuth account ${apiKeyData.claudeAccountId} is not schedulable (schedulable: ${boundAccount?.schedulable}, backupWindow: ${isAccountInBackupWindow(boundAccount)})`
             )
           } else {
             logger.info(
@@ -569,7 +575,8 @@ class UnifiedClaudeScheduler {
         boundConsoleAccount &&
         boundConsoleAccount.isActive === true &&
         boundConsoleAccount.status === 'active' &&
-        isSchedulable(boundConsoleAccount.schedulable)
+        isSchedulable(boundConsoleAccount.schedulable) &&
+        isAccountInBackupWindow(boundConsoleAccount)
       ) {
         // 主动触发一次额度检查
         try {
@@ -624,7 +631,8 @@ class UnifiedClaudeScheduler {
       if (
         boundBedrockAccountResult.success &&
         boundBedrockAccountResult.data.isActive === true &&
-        isSchedulable(boundBedrockAccountResult.data.schedulable)
+        isSchedulable(boundBedrockAccountResult.data.schedulable) &&
+        isAccountInBackupWindow(boundBedrockAccountResult.data)
       ) {
         // 检查是否临时不可用
         if (await this.isAccountTemporarilyUnavailable(apiKeyData.bedrockAccountId, 'bedrock')) {
@@ -661,7 +669,8 @@ class UnifiedClaudeScheduler {
         account.status !== 'blocked' &&
         account.status !== 'temp_error' &&
         (account.accountType === 'shared' || !account.accountType) && // 兼容旧数据
-        isSchedulable(account.schedulable)
+        isSchedulable(account.schedulable) &&
+        isAccountInBackupWindow(account)
       ) {
         // 检查是否可调度
 
@@ -760,7 +769,8 @@ class UnifiedClaudeScheduler {
         currentAccount.isActive === true &&
         currentAccount.status === 'active' &&
         currentAccount.accountType === 'shared' &&
-        isSchedulable(currentAccount.schedulable)
+        isSchedulable(currentAccount.schedulable) &&
+        isAccountInBackupWindow(currentAccount)
       ) {
         // 检查是否可调度
 
@@ -895,7 +905,8 @@ class UnifiedClaudeScheduler {
         if (
           account.isActive === true &&
           account.accountType === 'shared' &&
-          isSchedulable(account.schedulable)
+          isSchedulable(account.schedulable) &&
+          isAccountInBackupWindow(account)
         ) {
           // 检查是否临时不可用
           const isTempUnavailable = await this.isAccountTemporarilyUnavailable(
@@ -939,7 +950,8 @@ class UnifiedClaudeScheduler {
           account.isActive === true &&
           account.status === 'active' &&
           account.accountType === 'shared' &&
-          isSchedulable(account.schedulable)
+          isSchedulable(account.schedulable) &&
+          isAccountInBackupWindow(account)
         ) {
           // 检查模型支持
           if (!this._isModelSupportedByAccount(account, 'ccr', requestedModel)) {
@@ -1040,6 +1052,11 @@ class UnifiedClaudeScheduler {
           logger.info(`🚫 Account ${accountId} is not schedulable`)
           return false
         }
+        // 检查备用账户时间窗口
+        if (!isAccountInBackupWindow(account)) {
+          logger.info(`🚫 Backup account ${accountId} is outside scheduled window`)
+          return false
+        }
 
         // 检查模型兼容性
         if (
@@ -1094,6 +1111,11 @@ class UnifiedClaudeScheduler {
         // 检查是否可调度
         if (!isSchedulable(account.schedulable)) {
           logger.info(`🚫 Claude Console account ${accountId} is not schedulable`)
+          return false
+        }
+        // 检查备用账户时间窗口
+        if (!isAccountInBackupWindow(account)) {
+          logger.info(`🚫 Backup Claude Console account ${accountId} is outside scheduled window`)
           return false
         }
         // 检查模型支持
@@ -1165,6 +1187,11 @@ class UnifiedClaudeScheduler {
           logger.info(`🚫 Bedrock account ${accountId} is not schedulable`)
           return false
         }
+        // 检查备用账户时间窗口
+        if (!isAccountInBackupWindow(accountResult.data)) {
+          logger.info(`🚫 Backup Bedrock account ${accountId} is outside scheduled window`)
+          return false
+        }
         // 检查是否临时不可用
         if (await this.isAccountTemporarilyUnavailable(accountId, 'bedrock')) {
           return false
@@ -1188,6 +1215,11 @@ class UnifiedClaudeScheduler {
         // 检查是否可调度
         if (!isSchedulable(account.schedulable)) {
           logger.info(`🚫 CCR account ${accountId} is not schedulable`)
+          return false
+        }
+        // 检查备用账户时间窗口
+        if (!isAccountInBackupWindow(account)) {
+          logger.info(`🚫 Backup CCR account ${accountId} is outside scheduled window`)
           return false
         }
         // 检查模型支持
@@ -1611,7 +1643,12 @@ class UnifiedClaudeScheduler {
               ? account.status === 'active'
               : account.status === 'active'
 
-        if (isActive && status && isSchedulable(account.schedulable)) {
+        if (
+          isActive &&
+          status &&
+          isSchedulable(account.schedulable) &&
+          isAccountInBackupWindow(account)
+        ) {
           // 检查模型支持
           if (!this._isModelSupportedByAccount(account, accountType, requestedModel, 'in group')) {
             continue
@@ -1782,7 +1819,8 @@ class UnifiedClaudeScheduler {
           account.isActive === true &&
           account.status === 'active' &&
           account.accountType === 'shared' &&
-          isSchedulable(account.schedulable)
+          isSchedulable(account.schedulable) &&
+          isAccountInBackupWindow(account)
         ) {
           // 检查模型支持
           if (!this._isModelSupportedByAccount(account, 'ccr', requestedModel)) {
@@ -1879,6 +1917,14 @@ class UnifiedClaudeScheduler {
       // 检查是否可调度（包括被 autoStopOnWarning 停止的情况）
       if (!isSchedulable(account.schedulable)) {
         logger.warn(`Session binding: Claude OAuth account ${accountId} is not schedulable`)
+        return false
+      }
+
+      // 备用账户：时间窗口外视为不可用于会话绑定
+      if (!isAccountInBackupWindow(account)) {
+        logger.warn(
+          `Session binding: Backup Claude OAuth account ${accountId} is outside scheduled window`
+        )
         return false
       }
 

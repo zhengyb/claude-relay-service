@@ -22,6 +22,7 @@ const {
   parseBooleanLike,
   normalizeOptionalNonNegativeInteger
 } = require('../../utils/tempUnavailablePolicy')
+const { validateBackupSchedule } = require('../../utils/backupAccountHelper')
 const { formatAccountExpiry, mapExpiryField } = require('./utils')
 
 const TEMP_UNAVAILABLE_TTL_FIELDS = ['tempUnavailable503TtlSeconds', 'tempUnavailable5xxTtlSeconds']
@@ -628,11 +629,20 @@ router.post('/claude-accounts', authenticateAdmin, async (req, res) => {
       interceptWarmup,
       disableTempUnavailable,
       tempUnavailable503TtlSeconds,
-      tempUnavailable5xxTtlSeconds
+      tempUnavailable5xxTtlSeconds,
+      isBackupAccount,
+      backupSchedule
     } = req.body
 
     if (!name) {
       return res.status(400).json({ error: 'Name is required' })
+    }
+
+    if (backupSchedule !== undefined) {
+      const { valid, error } = validateBackupSchedule(backupSchedule)
+      if (!valid) {
+        return res.status(400).json({ error })
+      }
     }
 
     // 验证accountType的有效性
@@ -688,7 +698,9 @@ router.post('/claude-accounts', authenticateAdmin, async (req, res) => {
       interceptWarmup: interceptWarmup === true, // 拦截预热请求：默认为false
       disableTempUnavailable: normalizedTempUnavailablePolicy.disableTempUnavailable,
       tempUnavailable503TtlSeconds: normalizedTempUnavailablePolicy.tempUnavailable503TtlSeconds,
-      tempUnavailable5xxTtlSeconds: normalizedTempUnavailablePolicy.tempUnavailable5xxTtlSeconds
+      tempUnavailable5xxTtlSeconds: normalizedTempUnavailablePolicy.tempUnavailable5xxTtlSeconds,
+      isBackupAccount: isBackupAccount === true,
+      backupSchedule: backupSchedule || null
     })
 
     // 如果是分组类型，将账户添加到分组
@@ -738,6 +750,14 @@ router.put('/claude-accounts/:accountId', authenticateAdmin, async (req, res) =>
       return res.status(400).json({ error: tempUnavailablePolicyError })
     }
     Object.assign(mappedUpdates, normalizedTempUnavailablePolicy)
+
+    // 备用账户时段校验
+    if (mappedUpdates.backupSchedule !== undefined) {
+      const { valid, error } = validateBackupSchedule(mappedUpdates.backupSchedule)
+      if (!valid) {
+        return res.status(400).json({ error })
+      }
+    }
 
     // 验证accountType的有效性
     if (

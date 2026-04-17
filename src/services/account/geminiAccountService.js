@@ -17,6 +17,11 @@ const {
 const tokenRefreshService = require('../tokenRefreshService')
 const { createEncryptor } = require('../../utils/commonHelper')
 const antigravityClient = require('../antigravityClient')
+const {
+  serializeBackupFields,
+  readBackupFields,
+  normalizeBackupSchedule
+} = require('../../utils/backupAccountHelper')
 
 // Gemini 账户键前缀
 const GEMINI_ACCOUNT_KEY_PREFIX = 'gemini_account:'
@@ -530,6 +535,12 @@ async function createAccount(accountData) {
         ? 'true'
         : 'false',
 
+    // 备用账户相关
+    ...serializeBackupFields({
+      isBackupAccount: accountData.isBackupAccount,
+      backupSchedule: accountData.backupSchedule
+    }),
+
     // 时间戳
     createdAt: now,
     updatedAt: now,
@@ -594,6 +605,13 @@ async function getAccount(accountId) {
 
   // 转换 schedulable 字符串为布尔值（与 claudeConsoleAccountService 保持一致）
   accountData.schedulable = accountData.schedulable !== 'false' // 默认为true，只有明确设置为'false'才为false
+
+  // 备用账户相关
+  {
+    const _backup = readBackupFields(accountData)
+    accountData.isBackupAccount = _backup.isBackupAccount
+    accountData.backupSchedule = _backup.backupSchedule
+  }
 
   return accountData
 }
@@ -679,6 +697,16 @@ async function updateAccount(accountId, updates) {
       updates.disableAutoProtection === true || updates.disableAutoProtection === 'true'
         ? 'true'
         : 'false'
+  }
+
+  // 备用账户相关
+  if (updates.isBackupAccount !== undefined) {
+    updates.isBackupAccount =
+      updates.isBackupAccount === true || updates.isBackupAccount === 'true' ? 'true' : 'false'
+  }
+  if (updates.backupSchedule !== undefined) {
+    const normalized = normalizeBackupSchedule(updates.backupSchedule)
+    updates.backupSchedule = normalized ? JSON.stringify(normalized) : ''
   }
 
   // 如果通过 geminiOauth 更新，也要检查是否新增了 refresh token
@@ -800,6 +828,13 @@ async function getAllAccounts() {
 
       // 转换 schedulable 字符串为布尔值（与 getAccount 保持一致）
       accountData.schedulable = accountData.schedulable !== 'false' // 默认为true，只有明确设置为'false'才为false
+
+      // 备用账户相关
+      {
+        const _backup = readBackupFields(accountData)
+        accountData.isBackupAccount = _backup.isBackupAccount
+        accountData.backupSchedule = _backup.backupSchedule
+      }
 
       const tokenExpiresAt = accountData.expiresAt || null
       const subscriptionExpiresAt =

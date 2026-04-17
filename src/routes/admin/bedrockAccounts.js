@@ -12,6 +12,7 @@ const redis = require('../../models/redis')
 const { authenticateAdmin } = require('../../middleware/auth')
 const logger = require('../../utils/logger')
 const webhookNotifier = require('../../utils/webhookNotifier')
+const { validateBackupSchedule } = require('../../utils/backupAccountHelper')
 const { formatAccountExpiry, mapExpiryField } = require('./utils')
 
 // ☁️ Bedrock 账户管理
@@ -126,11 +127,20 @@ router.post('/', authenticateAdmin, async (req, res) => {
       defaultModel,
       priority,
       accountType,
-      credentialType
+      credentialType,
+      isBackupAccount,
+      backupSchedule
     } = req.body
 
     if (!name) {
       return res.status(400).json({ error: 'Name is required' })
+    }
+
+    if (backupSchedule !== undefined) {
+      const { valid, error } = validateBackupSchedule(backupSchedule)
+      if (!valid) {
+        return res.status(400).json({ error })
+      }
     }
 
     // 验证priority的有效性（1-100）
@@ -161,7 +171,9 @@ router.post('/', authenticateAdmin, async (req, res) => {
       defaultModel,
       priority: priority || 50,
       accountType: accountType || 'shared',
-      credentialType: credentialType || 'access_key'
+      credentialType: credentialType || 'access_key',
+      isBackupAccount: isBackupAccount === true,
+      backupSchedule: backupSchedule || null
     })
 
     if (!result.success) {
@@ -213,6 +225,14 @@ router.put('/:accountId', authenticateAdmin, async (req, res) => {
       return res.status(400).json({
         error: 'Invalid credential type. Must be "access_key" or "bearer_token"'
       })
+    }
+
+    // 备用账户时段校验
+    if (mappedUpdates.backupSchedule !== undefined) {
+      const { valid, error } = validateBackupSchedule(mappedUpdates.backupSchedule)
+      if (!valid) {
+        return res.status(400).json({ error })
+      }
     }
 
     const result = await bedrockAccountService.updateAccount(accountId, mappedUpdates)

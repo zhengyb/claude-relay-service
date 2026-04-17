@@ -12,6 +12,7 @@ const {
   WorkOSDeviceAuthError
 } = require('../../utils/workosOAuthHelper')
 const webhookNotifier = require('../../utils/webhookNotifier')
+const { validateBackupSchedule } = require('../../utils/backupAccountHelper')
 const { formatAccountExpiry, mapExpiryField } = require('./utils')
 const { extractErrorMessage } = require('../../utils/testPayloadHelper')
 
@@ -312,6 +313,13 @@ router.post('/droid-accounts', authenticateAdmin, async (req, res) => {
       return res.status(400).json({ error: '分组调度账户必须至少选择一个分组' })
     }
 
+    if (req.body.backupSchedule !== undefined) {
+      const { valid, error } = validateBackupSchedule(req.body.backupSchedule)
+      if (!valid) {
+        return res.status(400).json({ error })
+      }
+    }
+
     const accountPayload = {
       ...req.body,
       accountType: normalizedAccountType
@@ -368,6 +376,14 @@ router.put('/droid-accounts/:id', authenticateAdmin, async (req, res) => {
       (!Array.isArray(groupIds) || groupIds.length === 0)
     ) {
       return res.status(400).json({ error: '分组调度账户必须至少选择一个分组' })
+    }
+
+    // 备用账户时段校验
+    if (mappedUpdates.backupSchedule !== undefined) {
+      const { valid, error } = validateBackupSchedule(mappedUpdates.backupSchedule)
+      if (!valid) {
+        return res.status(400).json({ error })
+      }
     }
 
     const currentAccount = await droidAccountService.getAccount(id)

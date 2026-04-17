@@ -22,3 +22,28 @@ Start by checking `src/routes/userRoutes.js` — currently there's no PUT route 
 keys, only DELETE. That PUT route needs to be added first.
 
 **Depends on:** feature/email-notice merged to main.
+
+## Cache Intl.DateTimeFormat per-timezone in backupAccountHelper
+
+**What:** In `src/utils/backupAccountHelper.js`, cache `Intl.DateTimeFormat` instances keyed by
+timezone string instead of allocating a new formatter on every `getMinutesInTz()` call.
+
+**Why:** Scheduler evaluates `isAccountInBackupWindow(account)` for every account in the pool on
+every request. With 100 accounts and busy traffic, that's 100 formatter allocations per request.
+Each allocation costs ~10-50μs; cumulative overhead is ~1-5ms per scheduling decision that isn't
+needed. At high QPS this shows up on the scheduler's latency budget.
+
+**Pros:** Drops allocation cost to near-zero (one formatter per timezone, typically <10 distinct
+timezones across a deployment). ~15 lines of code. No behavior change.
+
+**Cons:** Introduces small per-process cache (`Map<timezone, DateTimeFormat>`). Must never evict
+because DateTimeFormat is thread-safe and stateless. Adds one more "thing to know" to
+`backupAccountHelper.js`.
+
+**Context:** Current implementation `getMinutesInTz(date, timezone)` creates `new
+Intl.DateTimeFormat('en-US', { timeZone, hour: '2-digit', minute: '2-digit', hour12: false })`
+per call. Cache it at module level: `const _fmtCache = new Map()`. Before creating, check cache;
+after validating timezone once, store the formatter. The timezone validity check already happens
+in `isValidTimezone`, so the cache never stores invalid entries.
+
+**Depends on:** None. Self-contained optimization.

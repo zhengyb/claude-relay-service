@@ -12,6 +12,7 @@ const redis = require('../../models/redis')
 const { authenticateAdmin } = require('../../middleware/auth')
 const logger = require('../../utils/logger')
 const webhookNotifier = require('../../utils/webhookNotifier')
+const { validateBackupSchedule } = require('../../utils/backupAccountHelper')
 const { formatAccountExpiry, mapExpiryField } = require('./utils')
 const { createOpenAITestPayload, extractErrorMessage } = require('../../utils/testPayloadHelper')
 const { getProxyAgent } = require('../../utils/proxyHelper')
@@ -158,6 +159,13 @@ router.post('/openai-responses-accounts', authenticateAdmin, async (req, res) =>
       })
     }
 
+    if (accountData.backupSchedule !== undefined) {
+      const { valid, error } = validateBackupSchedule(accountData.backupSchedule)
+      if (!valid) {
+        return res.status(400).json({ success: false, error })
+      }
+    }
+
     const account = await openaiResponsesAccountService.createAccount(accountData)
 
     // 如果是分组类型，处理分组绑定
@@ -216,6 +224,14 @@ router.put('/openai-responses-accounts/:id', authenticateAdmin, async (req, res)
         })
       }
       mappedUpdates.priority = priority.toString()
+    }
+
+    // 备用账户时段校验
+    if (mappedUpdates.backupSchedule !== undefined) {
+      const { valid, error } = validateBackupSchedule(mappedUpdates.backupSchedule)
+      if (!valid) {
+        return res.status(400).json({ success: false, error })
+      }
     }
 
     // 处理分组变更

@@ -9,6 +9,7 @@ const {
   sortAccountsByPriority,
   normalizeEndpointType
 } = require('../../utils/commonHelper')
+const { isAccountInBackupWindow } = require('../../utils/backupAccountHelper')
 
 class DroidScheduler {
   constructor() {
@@ -16,7 +17,7 @@ class DroidScheduler {
   }
 
   _isAccountSchedulable(account) {
-    return isTruthy(account?.schedulable ?? true)
+    return isTruthy(account?.schedulable ?? true) && isAccountInBackupWindow(account)
   }
 
   _matchesEndpoint(account, endpointType) {

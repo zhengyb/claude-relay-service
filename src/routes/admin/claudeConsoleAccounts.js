@@ -14,6 +14,7 @@ const redis = require('../../models/redis')
 const { authenticateAdmin } = require('../../middleware/auth')
 const logger = require('../../utils/logger')
 const webhookNotifier = require('../../utils/webhookNotifier')
+const { validateBackupSchedule } = require('../../utils/backupAccountHelper')
 const { formatAccountExpiry, mapExpiryField } = require('./utils')
 
 // 获取所有Claude Console账户
@@ -133,11 +134,20 @@ router.post('/claude-console-accounts', authenticateAdmin, async (req, res) => {
       quotaResetTime,
       maxConcurrentTasks,
       disableAutoProtection,
-      interceptWarmup
+      interceptWarmup,
+      isBackupAccount,
+      backupSchedule
     } = req.body
 
     if (!name || !apiUrl || !apiKey) {
       return res.status(400).json({ error: 'Name, API URL and API Key are required' })
+    }
+
+    if (backupSchedule !== undefined) {
+      const { valid, error } = validateBackupSchedule(backupSchedule)
+      if (!valid) {
+        return res.status(400).json({ error })
+      }
     }
 
     // 验证priority的有效性（1-100）
@@ -188,7 +198,9 @@ router.post('/claude-console-accounts', authenticateAdmin, async (req, res) => {
           ? Number(maxConcurrentTasks)
           : 0,
       disableAutoProtection: normalizedDisableAutoProtection,
-      interceptWarmup: interceptWarmup === true || interceptWarmup === 'true'
+      interceptWarmup: interceptWarmup === true || interceptWarmup === 'true',
+      isBackupAccount: isBackupAccount === true,
+      backupSchedule: backupSchedule || null
     })
 
     // 如果是分组类型，将账户添加到分组（CCR 归属 Claude 平台分组）
@@ -263,6 +275,14 @@ router.put('/claude-console-accounts/:accountId', authenticateAdmin, async (req,
       mappedUpdates.disableAutoProtection =
         mappedUpdates.disableAutoProtection === true ||
         mappedUpdates.disableAutoProtection === 'true'
+    }
+
+    // 备用账户时段校验
+    if (mappedUpdates.backupSchedule !== undefined) {
+      const { valid, error } = validateBackupSchedule(mappedUpdates.backupSchedule)
+      if (!valid) {
+        return res.status(400).json({ error })
+      }
     }
 
     // 处理分组的变更

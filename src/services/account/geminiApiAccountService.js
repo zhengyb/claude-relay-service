@@ -5,6 +5,11 @@ const logger = require('../../utils/logger')
 const config = require('../../../config/config')
 const LRUCache = require('../../utils/lruCache')
 const upstreamErrorHelper = require('../../utils/upstreamErrorHelper')
+const {
+  serializeBackupFields,
+  readBackupFields,
+  normalizeBackupSchedule
+} = require('../../utils/backupAccountHelper')
 
 class GeminiApiAccountService {
   constructor() {
@@ -46,7 +51,9 @@ class GeminiApiAccountService {
       schedulable = true, // 是否可被调度
       supportedModels = [], // 支持的模型列表
       rateLimitDuration = 60, // 限流时间（分钟）
-      disableAutoProtection = false
+      disableAutoProtection = false,
+      isBackupAccount = false, // 备用账户：只在指定时段参与共享池调度
+      backupSchedule = null // 备用账户时段配置
     } = options
 
     // 验证必填字段
@@ -85,7 +92,10 @@ class GeminiApiAccountService {
 
       // 自动防护开关
       disableAutoProtection:
-        disableAutoProtection === true || disableAutoProtection === 'true' ? 'true' : 'false'
+        disableAutoProtection === true || disableAutoProtection === 'true' ? 'true' : 'false',
+
+      // 备用账户相关字段
+      ...serializeBackupFields({ isBackupAccount, backupSchedule })
     }
 
     // 保存到 Redis
@@ -129,6 +139,13 @@ class GeminiApiAccountService {
       }
     }
 
+    // 备用账户相关
+    {
+      const _backup = readBackupFields(accountData)
+      accountData.isBackupAccount = _backup.isBackupAccount
+      accountData.backupSchedule = _backup.backupSchedule
+    }
+
     return accountData
   }
 
@@ -142,6 +159,16 @@ class GeminiApiAccountService {
     // 处理敏感字段加密
     if (updates.apiKey) {
       updates.apiKey = this._encryptSensitiveData(updates.apiKey)
+    }
+
+    // 备用账户相关
+    if (updates.isBackupAccount !== undefined) {
+      updates.isBackupAccount =
+        updates.isBackupAccount === true || updates.isBackupAccount === 'true' ? 'true' : 'false'
+    }
+    if (updates.backupSchedule !== undefined) {
+      const normalized = normalizeBackupSchedule(updates.backupSchedule)
+      updates.backupSchedule = normalized ? JSON.stringify(normalized) : ''
     }
 
     // 处理 JSON 字段
@@ -296,6 +323,13 @@ class GeminiApiAccountService {
             accountData.isActive = accountData.isActive === 'true'
 
             accountData.platform = accountData.platform || 'gemini-api'
+
+            // 备用账户相关
+            {
+              const _backup = readBackupFields(accountData)
+              accountData.isBackupAccount = _backup.isBackupAccount
+              accountData.backupSchedule = _backup.backupSchedule
+            }
 
             accounts.push(accountData)
           }

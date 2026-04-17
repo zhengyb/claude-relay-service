@@ -4,6 +4,7 @@ const accountGroupService = require('../accountGroupService')
 const redis = require('../../models/redis')
 const logger = require('../../utils/logger')
 const { isSchedulable, isActive, sortAccountsByPriority } = require('../../utils/commonHelper')
+const { isAccountInBackupWindow } = require('../../utils/backupAccountHelper')
 const upstreamErrorHelper = require('../../utils/upstreamErrorHelper')
 
 const OAUTH_PROVIDER_GEMINI_CLI = 'gemini-cli'
@@ -364,7 +365,8 @@ class UnifiedGeminiScheduler {
         isActive(account.isActive) &&
         account.status !== 'error' &&
         (account.accountType === 'shared' || !account.accountType) && // 兼容旧数据
-        isSchedulable(account.schedulable)
+        isSchedulable(account.schedulable) &&
+        isAccountInBackupWindow(account)
       ) {
         if (
           normalizedOauthProvider &&
@@ -427,7 +429,8 @@ class UnifiedGeminiScheduler {
           isActive(account.isActive) &&
           account.status !== 'error' &&
           (account.accountType === 'shared' || !account.accountType) &&
-          isSchedulable(account.schedulable)
+          isSchedulable(account.schedulable) &&
+          isAccountInBackupWindow(account)
         ) {
           // 检查模型支持
           if (requestedModel && account.supportedModels && account.supportedModels.length > 0) {
@@ -487,6 +490,11 @@ class UnifiedGeminiScheduler {
           logger.info(`🚫 Gemini account ${accountId} is not schedulable`)
           return false
         }
+        // 备用账户时间窗口
+        if (!isAccountInBackupWindow(account)) {
+          logger.info(`🚫 Backup Gemini account ${accountId} is outside scheduled window`)
+          return false
+        }
         const isTempUnavailable = await upstreamErrorHelper.isTempUnavailable(
           accountId,
           accountType
@@ -504,6 +512,11 @@ class UnifiedGeminiScheduler {
         // 检查是否可调度
         if (!isSchedulable(account.schedulable)) {
           logger.info(`🚫 Gemini-API account ${accountId} is not schedulable`)
+          return false
+        }
+        // 备用账户时间窗口
+        if (!isAccountInBackupWindow(account)) {
+          logger.info(`🚫 Backup Gemini-API account ${accountId} is outside scheduled window`)
           return false
         }
         const isTempUnavailable = await upstreamErrorHelper.isTempUnavailable(
@@ -770,7 +783,8 @@ class UnifiedGeminiScheduler {
         if (
           isActive(account.isActive) &&
           account.status !== 'error' &&
-          isSchedulable(account.schedulable)
+          isSchedulable(account.schedulable) &&
+          isAccountInBackupWindow(account)
         ) {
           // 对于 Gemini OAuth 账户，检查 token 是否过期
           if (accountType === 'gemini') {

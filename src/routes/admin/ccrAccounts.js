@@ -8,6 +8,7 @@ const logger = require('../../utils/logger')
 const webhookNotifier = require('../../utils/webhookNotifier')
 const { formatAccountExpiry, mapExpiryField } = require('./utils')
 const { extractErrorMessage } = require('../../utils/testPayloadHelper')
+const { validateBackupSchedule } = require('../../utils/backupAccountHelper')
 
 const router = express.Router()
 
@@ -124,11 +125,20 @@ router.post('/', authenticateAdmin, async (req, res) => {
       accountType,
       groupId,
       dailyQuota,
-      quotaResetTime
+      quotaResetTime,
+      isBackupAccount,
+      backupSchedule
     } = req.body
 
     if (!name || !apiUrl || !apiKey) {
       return res.status(400).json({ error: 'Name, API URL and API Key are required' })
+    }
+
+    if (backupSchedule !== undefined) {
+      const { valid, error } = validateBackupSchedule(backupSchedule)
+      if (!valid) {
+        return res.status(400).json({ error })
+      }
     }
 
     // 验证priority的有效性（1-100）
@@ -161,7 +171,9 @@ router.post('/', authenticateAdmin, async (req, res) => {
       proxy,
       accountType: accountType || 'shared',
       dailyQuota: dailyQuota || 0,
-      quotaResetTime: quotaResetTime || '00:00'
+      quotaResetTime: quotaResetTime || '00:00',
+      isBackupAccount: isBackupAccount === true,
+      backupSchedule: backupSchedule || null
     })
 
     // 如果是分组类型，将账户添加到分组
@@ -208,6 +220,14 @@ router.put('/:accountId', authenticateAdmin, async (req, res) => {
     // 如果更新为分组类型，验证groupId
     if (mappedUpdates.accountType === 'group' && !mappedUpdates.groupId) {
       return res.status(400).json({ error: 'Group ID is required for group type accounts' })
+    }
+
+    // 备用账户时段校验
+    if (mappedUpdates.backupSchedule !== undefined) {
+      const { valid, error } = validateBackupSchedule(mappedUpdates.backupSchedule)
+      if (!valid) {
+        return res.status(400).json({ error })
+      }
     }
 
     // 获取账户当前信息以处理分组变更

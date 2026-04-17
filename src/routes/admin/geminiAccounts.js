@@ -6,6 +6,7 @@ const redis = require('../../models/redis')
 const { authenticateAdmin } = require('../../middleware/auth')
 const logger = require('../../utils/logger')
 const webhookNotifier = require('../../utils/webhookNotifier')
+const { validateBackupSchedule } = require('../../utils/backupAccountHelper')
 const { formatAccountExpiry, mapExpiryField } = require('./utils')
 
 const router = express.Router()
@@ -272,6 +273,13 @@ router.post('/', authenticateAdmin, async (req, res) => {
       return res.status(400).json({ error: 'Group ID is required for group type accounts' })
     }
 
+    if (accountData.backupSchedule !== undefined) {
+      const { valid, error } = validateBackupSchedule(accountData.backupSchedule)
+      if (!valid) {
+        return res.status(400).json({ error })
+      }
+    }
+
     const newAccount = await geminiAccountService.createAccount(accountData)
 
     // 如果是分组类型，处理分组绑定
@@ -327,6 +335,14 @@ router.put('/:accountId', authenticateAdmin, async (req, res) => {
 
     // ✅ 【新增】映射字段名：前端的 expiresAt -> 后端的 subscriptionExpiresAt
     const mappedUpdates = mapExpiryField(updates, 'Gemini', accountId)
+
+    // 备用账户时段校验
+    if (mappedUpdates.backupSchedule !== undefined) {
+      const { valid, error } = validateBackupSchedule(mappedUpdates.backupSchedule)
+      if (!valid) {
+        return res.status(400).json({ error })
+      }
+    }
 
     // 处理分组的变更
     if (mappedUpdates.accountType !== undefined) {

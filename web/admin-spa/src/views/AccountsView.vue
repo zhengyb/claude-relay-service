@@ -795,6 +795,17 @@
                       </el-tooltip>
                     </span>
                     <span
+                      v-if="account.isBackupAccount"
+                      class="inline-flex items-center rounded-full bg-indigo-100 px-3 py-1 text-xs font-semibold text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300"
+                      :title="formatBackupScheduleTooltip(account.backupSchedule)"
+                    >
+                      <i class="fas fa-clock mr-1" />
+                      备用
+                      <span v-if="formatBackupScheduleLabel(account.backupSchedule)" class="ml-1">
+                        {{ formatBackupScheduleLabel(account.backupSchedule) }}
+                      </span>
+                    </span>
+                    <span
                       v-if="
                         account.opusRateLimitStatus && account.opusRateLimitStatus.isRateLimited
                       "
@@ -4420,6 +4431,39 @@ const getClaudeAccountType = (account) => {
 
   // 没有订阅信息，保持原有显示
   return 'Claude'
+}
+
+// 备用账户时段标签（徽章内显示）
+const _parseBackupSchedule = (raw) => {
+  if (!raw) return null
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw)
+    } catch {
+      return null
+    }
+  }
+  return raw
+}
+
+const formatBackupScheduleLabel = (raw) => {
+  const schedule = _parseBackupSchedule(raw)
+  if (!schedule || !Array.isArray(schedule.windows) || schedule.windows.length === 0) {
+    return ''
+  }
+  const first = schedule.windows[0]
+  const suffix = schedule.windows.length > 1 ? ` +${schedule.windows.length - 1}` : ''
+  return `${first.start}-${first.end}${suffix}`
+}
+
+const formatBackupScheduleTooltip = (raw) => {
+  const schedule = _parseBackupSchedule(raw)
+  if (!schedule) return '备用账户未配置时段'
+  if (!Array.isArray(schedule.windows) || schedule.windows.length === 0) {
+    return '备用账户未配置时段，将始终不被调度'
+  }
+  const parts = schedule.windows.map((w) => `${w.start}-${w.end}`)
+  return `时区 ${schedule.timezone || 'UTC'}：${parts.join('，')}`
 }
 
 // 获取停止调度的原因

@@ -6,6 +6,7 @@ const config = require('../../../config/config')
 const bedrockRelayService = require('../relay/bedrockRelayService')
 const LRUCache = require('../../utils/lruCache')
 const upstreamErrorHelper = require('../../utils/upstreamErrorHelper')
+const { normalizeBackupSchedule } = require('../../utils/backupAccountHelper')
 
 class BedrockAccountService {
   constructor() {
@@ -43,10 +44,13 @@ class BedrockAccountService {
       priority = 50, // 调度优先级 (1-100，数字越小优先级越高)
       schedulable = true, // 是否可被调度
       credentialType = 'access_key', // 'access_key', 'bearer_token'（默认为 access_key）
-      disableAutoProtection = false // 是否关闭自动防护（429/401/400/529 不自动禁用）
+      disableAutoProtection = false, // 是否关闭自动防护（429/401/400/529 不自动禁用）
+      isBackupAccount = false, // 备用账户：只在指定时段参与共享池调度
+      backupSchedule = null // 备用账户时段配置
     } = options
 
     const accountId = uuidv4()
+    const normalizedBackupSchedule = normalizeBackupSchedule(backupSchedule)
 
     const accountData = {
       id: accountId,
@@ -67,7 +71,10 @@ class BedrockAccountService {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       type: 'bedrock', // 标识这是Bedrock账户
-      disableAutoProtection // 关闭自动防护
+      disableAutoProtection, // 关闭自动防护
+      // 备用账户相关
+      isBackupAccount: isBackupAccount === true || isBackupAccount === 'true',
+      backupSchedule: normalizedBackupSchedule
     }
 
     // 加密存储AWS凭证
@@ -251,7 +258,10 @@ class BedrockAccountService {
             hasCredentials:
               account.credentialType === 'bearer_token'
                 ? !!account.bearerToken
-                : !!account.awsCredentials
+                : !!account.awsCredentials,
+            // 备用账户相关
+            isBackupAccount: account.isBackupAccount === true || account.isBackupAccount === 'true',
+            backupSchedule: normalizeBackupSchedule(account.backupSchedule)
           })
         }
       }
@@ -349,6 +359,15 @@ class BedrockAccountService {
       // 自动防护开关
       if (updates.disableAutoProtection !== undefined) {
         account.disableAutoProtection = updates.disableAutoProtection
+      }
+
+      // 备用账户相关
+      if (updates.isBackupAccount !== undefined) {
+        account.isBackupAccount =
+          updates.isBackupAccount === true || updates.isBackupAccount === 'true'
+      }
+      if (updates.backupSchedule !== undefined) {
+        account.backupSchedule = normalizeBackupSchedule(updates.backupSchedule)
       }
 
       account.updatedAt = new Date().toISOString()

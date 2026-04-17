@@ -4,6 +4,7 @@ const accountGroupService = require('../accountGroupService')
 const redis = require('../../models/redis')
 const logger = require('../../utils/logger')
 const { isSchedulable, sortAccountsByPriority } = require('../../utils/commonHelper')
+const { isAccountInBackupWindow } = require('../../utils/backupAccountHelper')
 const upstreamErrorHelper = require('../../utils/upstreamErrorHelper')
 
 class UnifiedOpenAIScheduler {
@@ -53,6 +54,11 @@ class UnifiedOpenAIScheduler {
 
   // ✅ 确保账号在调度前完成限流恢复与 schedulable 校正
   async _ensureAccountReadyForScheduling(account, accountId, { sanitized = true } = {}) {
+    // 备用账户：时间窗口外直接视为不可用
+    if (!isAccountInBackupWindow(account)) {
+      return { canUse: false, reason: 'backup_window' }
+    }
+
     const hasRateLimitFlag = this._hasRateLimitFlag(account.rateLimitStatus)
     let rateLimitChecked = false
     let stillLimited = false
@@ -210,6 +216,14 @@ class UnifiedOpenAIScheduler {
                 logger.warn(`⚠️ ${errorMsg}`)
                 const error = new Error(errorMsg)
                 error.statusCode = 403 // Forbidden - 调度被禁止
+                throw error
+              }
+
+              if (!isAccountInBackupWindow(boundAccount)) {
+                const errorMsg = `Backup account ${boundAccount.name} is outside scheduled window`
+                logger.warn(`⚠️ ${errorMsg}`)
+                const error = new Error(errorMsg)
+                error.statusCode = 403
                 throw error
               }
 
@@ -441,6 +455,14 @@ class UnifiedOpenAIScheduler {
         account.status !== 'error' &&
         (account.accountType === 'shared' || !account.accountType)
       ) {
+        // 备用账户时间窗口
+        if (!isAccountInBackupWindow(account)) {
+          logger.debug(
+            `⏭️ Skipping OpenAI-Responses account ${account.name} - outside backup window`
+          )
+          continue
+        }
+
         // 检查 rateLimitStatus 或 status === 'rateLimited'
         const hasRateLimitFlag =
           this._hasRateLimitFlag(account.rateLimitStatus) || account.status === 'rateLimited'
@@ -569,6 +591,11 @@ class UnifiedOpenAIScheduler {
         // 检查是否可调度
         if (!isSchedulable(account.schedulable)) {
           logger.info(`🚫 OpenAI-Responses account ${accountId} is not schedulable`)
+          return false
+        }
+        // 备用账户时间窗口
+        if (!isAccountInBackupWindow(account)) {
+          logger.info(`🚫 Backup OpenAI-Responses account ${accountId} is outside scheduled window`)
           return false
         }
         // ⏰ 检查订阅是否过期

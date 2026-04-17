@@ -5,6 +5,11 @@ const logger = require('../../utils/logger')
 const config = require('../../../config/config')
 const LRUCache = require('../../utils/lruCache')
 const upstreamErrorHelper = require('../../utils/upstreamErrorHelper')
+const {
+  serializeBackupFields,
+  readBackupFields,
+  normalizeBackupSchedule
+} = require('../../utils/backupAccountHelper')
 
 class OpenAIResponsesAccountService {
   constructor() {
@@ -52,7 +57,9 @@ class OpenAIResponsesAccountService {
       quotaResetTime = '00:00', // 额度重置时间（HH:mm格式）
       rateLimitDuration = 60, // 限流时间（分钟）
       disableAutoProtection = false, // 是否关闭自动防护（429/401/400/529 不自动禁用）
-      providerEndpoint = 'responses' // Provider 端点类型：responses | auto
+      providerEndpoint = 'responses', // Provider 端点类型：responses | auto
+      isBackupAccount = false, // 备用账户：只在指定时段参与共享池调度
+      backupSchedule = null // 备用账户时段配置
     } = options
 
     // 验证必填字段
@@ -106,7 +113,9 @@ class OpenAIResponsesAccountService {
       quotaResetTime,
       quotaStoppedAt: '',
       disableAutoProtection: disableAutoProtection.toString(), // 关闭自动防护
-      providerEndpoint // Provider 端点类型：responses(默认) | auto
+      providerEndpoint, // Provider 端点类型：responses(默认) | auto
+      // 备用账户相关字段
+      ...serializeBackupFields({ isBackupAccount, backupSchedule })
     }
 
     // 保存到 Redis
@@ -140,6 +149,13 @@ class OpenAIResponsesAccountService {
       } catch (e) {
         accountData.proxy = null
       }
+    }
+
+    // 备用账户相关
+    {
+      const _backup = readBackupFields(accountData)
+      accountData.isBackupAccount = _backup.isBackupAccount
+      accountData.backupSchedule = _backup.backupSchedule
     }
 
     return accountData
@@ -188,6 +204,16 @@ class OpenAIResponsesAccountService {
     // 自动防护开关
     if (updates.disableAutoProtection !== undefined) {
       updates.disableAutoProtection = updates.disableAutoProtection.toString()
+    }
+
+    // 备用账户相关
+    if (updates.isBackupAccount !== undefined) {
+      updates.isBackupAccount =
+        updates.isBackupAccount === true || updates.isBackupAccount === 'true' ? 'true' : 'false'
+    }
+    if (updates.backupSchedule !== undefined) {
+      const normalized = normalizeBackupSchedule(updates.backupSchedule)
+      updates.backupSchedule = normalized ? JSON.stringify(normalized) : ''
     }
 
     // 更新 Redis
@@ -281,6 +307,13 @@ class OpenAIResponsesAccountService {
       accountData.isActive = accountData.isActive === 'true'
       accountData.expiresAt = accountData.subscriptionExpiresAt || null
       accountData.platform = accountData.platform || 'openai-responses'
+
+      // 备用账户相关
+      {
+        const _backup = readBackupFields(accountData)
+        accountData.isBackupAccount = _backup.isBackupAccount
+        accountData.backupSchedule = _backup.backupSchedule
+      }
 
       accounts.push(accountData)
     })
