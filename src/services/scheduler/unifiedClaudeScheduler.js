@@ -8,6 +8,8 @@ const logger = require('../../utils/logger')
 const { parseVendorPrefixedModel, isOpus45OrNewer } = require('../../utils/modelHelper')
 const { isSchedulable, sortAccountsByPriority } = require('../../utils/commonHelper')
 const upstreamErrorHelper = require('../../utils/upstreamErrorHelper')
+const webhookNotifier = require('../../utils/webhookNotifier')
+const { getISOStringWithTimezone } = require('../../utils/dateHelper')
 
 /**
  * Check if account is Pro (not Max)
@@ -38,6 +40,27 @@ function isProAccount(info) {
 class UnifiedClaudeScheduler {
   constructor() {
     this.SESSION_MAPPING_PREFIX = 'unified_claude_session_mapping:'
+    this._lastPoolExhaustedNotifyAt = 0
+    this._poolExhaustedNotifyCooldownMs = 5 * 60 * 1000 // 5分钟冷却，防止高并发下重复通知
+  }
+
+  // 🔔 通知管理员帐号池耗尽（带冷却防抖）
+  _notifyPoolExhausted(errorCode, reason) {
+    const now = Date.now()
+    if (now - this._lastPoolExhaustedNotifyAt > this._poolExhaustedNotifyCooldownMs) {
+      this._lastPoolExhaustedNotifyAt = now
+      webhookNotifier
+        .sendAccountAnomalyNotification({
+          accountId: 'shared-pool',
+          accountName: '共享帐号池',
+          platform: 'claude',
+          status: 'pool_exhausted',
+          errorCode,
+          reason,
+          timestamp: getISOStringWithTimezone(new Date())
+        })
+        .catch((err) => logger.warn('⚠️ Failed to send pool exhaustion notification:', err.message))
+    }
   }
 
   // 🔍 检查账户是否支持请求的模型
@@ -420,7 +443,11 @@ class UnifiedClaudeScheduler {
       )
 
       if (availableAccounts.length === 0) {
-        // 提供更详细的错误信息
+        const reason = effectiveModel
+          ? `共享帐号池所有帐号不可用，请求模型: ${effectiveModel}，触发 API Key: ${apiKeyData?.name || 'unknown'}`
+          : `共享帐号池所有帐号不可用，触发 API Key: ${apiKeyData?.name || 'unknown'}`
+        this._notifyPoolExhausted('CLAUDE_SHARED_POOL_EXHAUSTED', reason)
+
         if (effectiveModel) {
           throw new Error(
             `No available Claude accounts support the requested model: ${effectiveModel}`
@@ -978,6 +1005,10 @@ class UnifiedClaudeScheduler {
       ) {
         logger.error(
           `❌ All ${consoleAccountsEligibleCount} eligible Console accounts are at concurrency limit (no other account types available)`
+        )
+        this._notifyPoolExhausted(
+          'CLAUDE_CONSOLE_CONCURRENCY_FULL',
+          `所有 Console 帐号并发已满（共 ${consoleAccountsEligibleCount} 个），无其他可用帐号类型`
         )
         const error = new Error(
           'All available Claude Console accounts have reached their concurrency limit'
