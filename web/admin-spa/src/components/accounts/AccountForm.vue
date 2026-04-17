@@ -2004,8 +2004,8 @@
               <label class="mb-3 flex items-center gap-3">
                 <input
                   v-model="form.isBackupAccount"
-                  type="checkbox"
                   class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
+                  type="checkbox"
                 />
                 <span class="text-sm font-semibold text-gray-700 dark:text-gray-300"
                   >设为备用账户</span
@@ -2025,9 +2025,9 @@
                   >
                   <input
                     v-model="form.backupSchedule.timezone"
-                    type="text"
-                    placeholder="例如：Asia/Shanghai、UTC、America/Los_Angeles"
                     class="form-input w-full text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                    placeholder="例如：Asia/Shanghai、UTC、America/Los_Angeles"
+                    type="text"
                   />
                 </div>
                 <div>
@@ -2041,26 +2041,26 @@
                   >
                     <input
                       v-model="window.start"
-                      type="time"
                       class="form-input flex-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                      type="time"
                     />
                     <span class="text-sm text-gray-500 dark:text-gray-400">至</span>
                     <input
                       v-model="window.end"
-                      type="time"
                       class="form-input flex-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                      type="time"
                     />
                     <button
-                      type="button"
                       class="rounded p-2 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/30"
+                      type="button"
                       @click="form.backupSchedule.windows.splice(idx, 1)"
                     >
                       <i class="fas fa-trash" />
                     </button>
                   </div>
                   <button
-                    type="button"
                     class="mt-1 text-xs font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400"
+                    type="button"
                     @click="form.backupSchedule.windows.push({ start: '22:00', end: '06:00' })"
                   >
                     <i class="fas fa-plus mr-1" />添加时段
