@@ -3100,6 +3100,82 @@
             </p>
           </div>
 
+          <!-- 备用账户（编辑模式，所有平台通用） -->
+          <div>
+            <label class="mb-3 flex items-center gap-3">
+              <input
+                v-model="form.isBackupAccount"
+                class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
+                type="checkbox"
+              />
+              <span class="text-sm font-semibold text-gray-700 dark:text-gray-300"
+                >设为备用账户</span
+              >
+            </label>
+            <p class="mb-3 text-xs text-gray-500 dark:text-gray-400">
+              <i class="fas fa-info-circle mr-1 text-blue-500" />
+              备用账户只在指定的每日时段才参与共享池调度；时段外自动退出（专属绑定同样生效）。
+            </p>
+            <div
+              v-if="form.isBackupAccount"
+              class="space-y-3 rounded-lg border border-blue-200 bg-blue-50/50 p-4 dark:border-blue-800 dark:bg-blue-900/20"
+            >
+              <div>
+                <label class="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300"
+                  >时区 (IANA)</label
+                >
+                <input
+                  v-model="form.backupSchedule.timezone"
+                  class="form-input w-full text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                  placeholder="例如：Asia/Shanghai、UTC、America/Los_Angeles"
+                  type="text"
+                />
+              </div>
+              <div>
+                <label class="mb-2 block text-xs font-medium text-gray-700 dark:text-gray-300"
+                  >可调度时段（HH:MM，支持跨天）</label
+                >
+                <div
+                  v-for="(window, idx) in form.backupSchedule.windows"
+                  :key="idx"
+                  class="mb-2 flex items-center gap-2"
+                >
+                  <input
+                    v-model="window.start"
+                    class="form-input flex-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                    type="time"
+                  />
+                  <span class="text-sm text-gray-500 dark:text-gray-400">至</span>
+                  <input
+                    v-model="window.end"
+                    class="form-input flex-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                    type="time"
+                  />
+                  <button
+                    class="rounded p-2 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/30"
+                    type="button"
+                    @click="form.backupSchedule.windows.splice(idx, 1)"
+                  >
+                    <i class="fas fa-trash" />
+                  </button>
+                </div>
+                <button
+                  class="mt-1 text-xs font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400"
+                  type="button"
+                  @click="form.backupSchedule.windows.push({ start: '22:00', end: '06:00' })"
+                >
+                  <i class="fas fa-plus mr-1" />添加时段
+                </button>
+              </div>
+              <p
+                v-if="!form.backupSchedule.windows.length"
+                class="text-xs text-amber-600 dark:text-amber-400"
+              >
+                <i class="fas fa-exclamation-triangle mr-1" />未配置任何时段，该账户将始终不被调度。
+              </p>
+            </div>
+          </div>
+
           <!-- Claude Console 和 CCR 特定字段（编辑模式）-->
           <div
             v-if="form.platform === 'claude-console' || form.platform === 'ccr'"
