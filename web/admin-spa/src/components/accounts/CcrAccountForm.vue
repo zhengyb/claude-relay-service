@@ -113,6 +113,83 @@
             </div>
           </div>
 
+          <!-- 备用账户 -->
+          <div>
+            <label class="mb-3 flex items-center gap-3">
+              <input
+                v-model="form.isBackupAccount"
+                class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
+                type="checkbox"
+                @change="ensureBackupScheduleInitialized"
+              />
+              <span class="text-sm font-semibold text-gray-700 dark:text-gray-300"
+                >设为备用账户</span
+              >
+            </label>
+            <p class="mb-3 text-xs text-gray-500 dark:text-gray-400">
+              <i class="fas fa-info-circle mr-1 text-blue-500" />
+              备用账户只在指定的每日时段才参与共享池调度；时段外自动退出。
+            </p>
+            <div
+              v-if="form.isBackupAccount && form.backupSchedule"
+              class="space-y-3 rounded-lg border border-blue-200 bg-blue-50/50 p-4 dark:border-blue-800 dark:bg-blue-900/20"
+            >
+              <div>
+                <label class="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300"
+                  >时区 (IANA)</label
+                >
+                <input
+                  v-model="form.backupSchedule.timezone"
+                  class="form-input w-full text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                  placeholder="例如：Asia/Shanghai、UTC、America/Los_Angeles"
+                  type="text"
+                />
+              </div>
+              <div>
+                <label class="mb-2 block text-xs font-medium text-gray-700 dark:text-gray-300"
+                  >可调度时段（HH:MM，支持跨天）</label
+                >
+                <div
+                  v-for="(slot, idx) in form.backupSchedule.windows"
+                  :key="idx"
+                  class="mb-2 flex items-center gap-2"
+                >
+                  <input
+                    v-model="slot.start"
+                    class="form-input flex-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                    type="time"
+                  />
+                  <span class="text-sm text-gray-500 dark:text-gray-400">至</span>
+                  <input
+                    v-model="slot.end"
+                    class="form-input flex-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                    type="time"
+                  />
+                  <button
+                    class="rounded p-2 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/30"
+                    type="button"
+                    @click="form.backupSchedule.windows.splice(idx, 1)"
+                  >
+                    <i class="fas fa-trash" />
+                  </button>
+                </div>
+                <button
+                  class="mt-1 text-xs font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400"
+                  type="button"
+                  @click="form.backupSchedule.windows.push({ start: '22:00', end: '06:00' })"
+                >
+                  <i class="fas fa-plus mr-1" />添加时段
+                </button>
+              </div>
+              <p
+                v-if="!form.backupSchedule.windows.length"
+                class="text-xs text-amber-600 dark:text-amber-400"
+              >
+                <i class="fas fa-exclamation-triangle mr-1" />未配置任何时段，该账户将始终不被调度。
+              </p>
+            </div>
+          </div>
+
           <!-- 限流设置 -->
           <div>
             <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
@@ -276,6 +353,41 @@ const show = ref(true)
 const isEdit = computed(() => !!props.account)
 const loading = ref(false)
 
+// 备用账户时段：归一化为 { timezone, windows } 结构，兜底所有异常输入
+// 时区缺失默认 Asia/Shanghai；时段缺失默认全天可调度（00:00-23:59）
+const DEFAULT_BACKUP_WINDOW = { start: '00:00', end: '23:59' }
+const normalizeBackupScheduleForForm = (raw) => {
+  const buildDefault = () => ({
+    timezone: 'Asia/Shanghai',
+    windows: [{ ...DEFAULT_BACKUP_WINDOW }]
+  })
+  if (!raw) return buildDefault()
+  let parsed = raw
+  if (typeof raw === 'string') {
+    try {
+      parsed = JSON.parse(raw)
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[CcrAccountForm] backupSchedule JSON 解析失败，原值：${raw}。已退回默认配置。`,
+        err
+      )
+      return buildDefault()
+    }
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return buildDefault()
+  }
+  const cleanWindows = Array.isArray(parsed.windows)
+    ? parsed.windows.filter((w) => w && typeof w === 'object')
+    : []
+  return {
+    timezone:
+      typeof parsed.timezone === 'string' && parsed.timezone ? parsed.timezone : 'Asia/Shanghai',
+    windows: cleanWindows.length > 0 ? cleanWindows : [{ ...DEFAULT_BACKUP_WINDOW }]
+  }
+}
+
 const form = ref({
   name: '',
   description: '',
@@ -287,8 +399,28 @@ const form = ref({
   dailyQuota: 0,
   quotaResetTime: '00:00',
   proxy: null,
-  supportedModels: {}
+  supportedModels: {},
+  isBackupAccount: false,
+  backupSchedule: { timezone: 'Asia/Shanghai', windows: [] }
 })
+
+const ensureBackupScheduleInitialized = () => {
+  if (!form.value.isBackupAccount) return
+  const current = form.value.backupSchedule
+  if (!current || typeof current !== 'object' || Array.isArray(current)) {
+    form.value.backupSchedule = {
+      timezone: 'Asia/Shanghai',
+      windows: [{ ...DEFAULT_BACKUP_WINDOW }]
+    }
+    return
+  }
+  if (typeof current.timezone !== 'string' || !current.timezone) {
+    form.value.backupSchedule.timezone = 'Asia/Shanghai'
+  }
+  if (!Array.isArray(current.windows) || current.windows.length === 0) {
+    form.value.backupSchedule.windows = [{ ...DEFAULT_BACKUP_WINDOW }]
+  }
+}
 
 const enableRateLimit = ref(true)
 const errors = ref({})
@@ -339,7 +471,9 @@ const submit = async () => {
         dailyQuota: Number(form.value.dailyQuota || 0),
         quotaResetTime: form.value.quotaResetTime || '00:00',
         proxy: form.value.proxy || null,
-        supportedModels: buildSupportedModels()
+        supportedModels: buildSupportedModels(),
+        isBackupAccount: form.value.isBackupAccount === true,
+        backupSchedule: form.value.isBackupAccount === true ? form.value.backupSchedule : null
       }
       if (form.value.apiKey && form.value.apiKey.trim().length > 0) {
         updates.apiKey = form.value.apiKey
@@ -365,7 +499,9 @@ const submit = async () => {
         proxy: form.value.proxy,
         accountType: 'shared',
         dailyQuota: Number(form.value.dailyQuota || 0),
-        quotaResetTime: form.value.quotaResetTime || '00:00'
+        quotaResetTime: form.value.quotaResetTime || '00:00',
+        isBackupAccount: form.value.isBackupAccount === true,
+        backupSchedule: form.value.isBackupAccount === true ? form.value.backupSchedule : null
       }
       const res = await createCcrAccountApi(payload)
       if (res.success) {
@@ -395,6 +531,8 @@ const populateFromAccount = () => {
   form.value.quotaResetTime = a.quotaResetTime || '00:00'
   form.value.proxy = a.proxy || null
   enableRateLimit.value = form.value.rateLimitDuration > 0
+  form.value.isBackupAccount = a.isBackupAccount === true || a.isBackupAccount === 'true'
+  form.value.backupSchedule = normalizeBackupScheduleForForm(a.backupSchedule)
 
   // supportedModels 对象转为数组
   modelMappings.value = []
