@@ -10,8 +10,9 @@ pnpm-debug.log*
 .env.*
 !.env.example
 
-# Claude specific directories
-.claude/
+# Claude specific directories (keep .claude/skills/ tracked for team sharing)
+.claude/*
+!.claude/skills/
 
 # MCP configuration (local only)
 .mcp.json
