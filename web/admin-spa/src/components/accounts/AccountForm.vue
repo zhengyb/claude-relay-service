@@ -6777,7 +6777,10 @@ watch(
         ),
         tempUnavailable5xxTtlSeconds: toFormCooldownOverrideValue(
           newAccount.tempUnavailable5xxTtlSeconds
-        )
+        ),
+        // 备用账户调度
+        isBackupAccount: newAccount.isBackupAccount === true,
+        backupSchedule: normalizeBackupScheduleForForm(newAccount.backupSchedule)
       }
 
       // 如果是Claude Console账户，加载实时使用情况
