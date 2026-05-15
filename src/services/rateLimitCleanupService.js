@@ -1,8 +1,14 @@
 /**
  * 限流状态自动清理服务
  * 定期检查并清理所有类型账号的过期限流状态
+ *
+ * 恢复策略：
+ *   - rateLimitResetSource === 'accurate'：上游返回了精确重置时间，等待倒计时到期
+ *   - rateLimitResetSource === 'estimated'（或缺失）：上游未返回重置时间，
+ *     每个清理周期主动向上游探测一次，探测成功则立即恢复账户可用性
  */
 
+const https = require('https')
 const logger = require('../utils/logger')
 const openaiAccountService = require('./account/openaiAccountService')
 const claudeAccountService = require('./account/claudeAccountService')
@@ -231,26 +237,54 @@ class RateLimitCleanupService {
           result.checked++
 
           try {
-            // 使用 claudeAccountService 的检查方法，它会自动清除过期的限流
-            const isStillLimited = await claudeAccountService.isAccountRateLimited(account.id)
+            const resetSource = account.rateLimitResetSource || 'estimated'
 
-            if (!isStillLimited) {
-              if (!isRateLimited && autoStopped) {
-                await claudeAccountService.removeAccountRateLimit(account.id)
+            if (resetSource === 'accurate') {
+              // 上游给过精确重置时间：倒计时到期后自动恢复
+              const isStillLimited = await claudeAccountService.isAccountRateLimited(account.id)
+              if (!isStillLimited) {
+                if (!isRateLimited && autoStopped) {
+                  await claudeAccountService.removeAccountRateLimit(account.id)
+                }
+                result.cleared++
+                logger.info(
+                  `🧹 [accurate] Rate limit expired for Claude account: ${account.name} (${account.id})`
+                )
+                this.clearedAccounts.push({
+                  platform: 'Claude',
+                  accountId: account.id,
+                  accountName: account.name,
+                  previousStatus: 'rate_limited',
+                  currentStatus: 'active'
+                })
               }
-              result.cleared++
-              logger.info(
-                `🧹 Auto-cleared expired rate limit for Claude account: ${account.name} (${account.id})`
-              )
+            } else {
+              // 上游未返回重置时间：主动探测，成功则立即恢复
+              const probeResult = await this._probeClaudeAccount(account)
 
-              // 记录已清理的账户信息
-              this.clearedAccounts.push({
-                platform: 'Claude',
-                accountId: account.id,
-                accountName: account.name,
-                previousStatus: 'rate_limited',
-                currentStatus: 'active'
-              })
+              if (probeResult === 'available') {
+                await claudeAccountService.removeAccountRateLimit(account.id)
+                result.cleared++
+                logger.info(
+                  `✅ [probe] Claude account recovered after probe: ${account.name} (${account.id})`
+                )
+                this.clearedAccounts.push({
+                  platform: 'Claude',
+                  accountId: account.id,
+                  accountName: account.name,
+                  previousStatus: 'rate_limited',
+                  currentStatus: 'active'
+                })
+              } else if (probeResult === 'still_limited') {
+                logger.info(
+                  `⏳ [probe] Claude account still rate limited: ${account.name} (${account.id})`
+                )
+              } else {
+                // probe 失败（网络/认证问题），等下一周期重试，不做任何变更
+                logger.warn(
+                  `⚠️ [probe] Could not determine rate limit status for: ${account.name} (${account.id}), reason: ${probeResult}`
+                )
+              }
             }
           } catch (error) {
             result.errors.push({
@@ -297,6 +331,103 @@ class RateLimitCleanupService {
     } catch (error) {
       logger.error('Failed to cleanup Claude accounts:', error)
       result.errors.push({ error: error.message })
+    }
+  }
+
+  /**
+   * 向上游 Claude API 发送轻量探测请求，判断账户是否仍处于限流状态。
+   * 使用 count_tokens 端点（不产生 token 消耗）。
+   *
+   * @returns {Promise<'available'|'still_limited'|string>}
+   *   'available'      - 探测成功，账户可用
+   *   'still_limited'  - 上游返回 429，仍在限流
+   *   其他字符串       - 探测失败原因（auth_error/network_error/...），不做变更
+   */
+  async _probeClaudeAccount(account) {
+    try {
+      const crypto = require('../utils/crypto')
+      const config = require('../../config/config')
+
+      // 获取并解密 access token
+      let { accessToken } = account
+      if (!accessToken) {
+        return 'no_token'
+      }
+      try {
+        accessToken = crypto.decrypt(accessToken)
+      } catch {
+        // token 可能未加密（旧格式）
+      }
+      if (!accessToken) {
+        return 'no_token'
+      }
+
+      // 获取代理配置（与正常请求保持一致）
+      const proxyConfig = config.proxy?.enabled ? config.proxy : null
+      const baseUrl = account.baseUrl || 'https://api.claude.ai'
+      const targetUrl = new URL('/api/v1/messages/count_tokens', baseUrl)
+
+      const body = JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        messages: [{ role: 'user', content: 'hi' }]
+      })
+
+      const statusCode = await new Promise((resolve) => {
+        const options = {
+          hostname: targetUrl.hostname,
+          port: targetUrl.port || 443,
+          path: targetUrl.pathname,
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(body),
+            Authorization: `Bearer ${accessToken}`,
+            'anthropic-beta': 'oauth-2025-04-20',
+            'anthropic-version': '2023-06-01'
+          },
+          timeout: 10000
+        }
+
+        // 若启用了 HTTP 代理，通过 CONNECT 隧道
+        if (proxyConfig?.host) {
+          const proxyAgent = (() => {
+            try {
+              const { HttpsProxyAgent } = require('https-proxy-agent')
+              return new HttpsProxyAgent(`http://${proxyConfig.host}:${proxyConfig.port}`)
+            } catch {
+              return undefined
+            }
+          })()
+          if (proxyAgent) {
+            options.agent = proxyAgent
+          }
+        }
+
+        const req = https.request(options, (res) => resolve(res.statusCode))
+        req.on('error', () => resolve(0))
+        req.on('timeout', () => {
+          req.destroy()
+          resolve(0)
+        })
+        req.write(body)
+        req.end()
+      })
+
+      if (statusCode === 200 || statusCode === 400) {
+        return 'available'
+      }
+      if (statusCode === 429) {
+        return 'still_limited'
+      }
+      if (statusCode === 401 || statusCode === 403) {
+        return 'auth_error'
+      }
+      if (statusCode === 0) {
+        return 'network_error'
+      }
+      return `http_${statusCode}`
+    } catch (error) {
+      return `error:${error.message}`
     }
   }
 

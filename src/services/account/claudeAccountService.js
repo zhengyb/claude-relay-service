@@ -1455,6 +1455,8 @@ class ClaudeAccountService {
         // 将Unix时间戳（秒）转换为毫秒并创建Date对象
         const resetTime = new Date(rateLimitResetTimestamp * 1000)
         updatedAccountData.rateLimitEndAt = resetTime.toISOString()
+        // 标记重置时间来源：accurate = 来自上游响应头，无需探测
+        updatedAccountData.rateLimitResetSource = 'accurate'
 
         // 计算当前会话窗口的开始时间（重置时间减去5小时）
         const windowStartTime = new Date(resetTime.getTime() - 5 * 60 * 60 * 1000)
@@ -1467,25 +1469,28 @@ class ClaudeAccountService {
           `🚫 Account marked as rate limited with accurate reset time: ${accountData.name} (${accountId}) - ${minutesUntilEnd} minutes remaining until ${resetTime.toISOString()}`
         )
       } else {
-        // 获取或创建会话窗口（预估方式）
+        // 上游未返回重置时间，标记为 estimated，清理服务将主动探测而非等待倒计时
+        updatedAccountData.rateLimitResetSource = 'estimated'
+
+        // 获取或创建会话窗口（仅用于日志展示，不作为恢复依据）
         const windowData = await this.updateSessionWindow(accountId, updatedAccountData)
         Object.assign(updatedAccountData, windowData)
 
-        // 限流结束时间 = 会话窗口结束时间
+        // 限流结束时间 = 会话窗口结束时间（仅作兜底，实际由探测机制触发恢复）
         if (updatedAccountData.sessionWindowEnd) {
           updatedAccountData.rateLimitEndAt = updatedAccountData.sessionWindowEnd
           const windowEnd = new Date(updatedAccountData.sessionWindowEnd)
           const now = new Date()
           const minutesUntilEnd = Math.ceil((windowEnd - now) / (1000 * 60))
           logger.warn(
-            `🚫 Account marked as rate limited until estimated session window ends: ${accountData.name} (${accountId}) - ${minutesUntilEnd} minutes remaining`
+            `🚫 Account marked as rate limited (reset time unknown, will probe every 5min): ${accountData.name} (${accountId}) - estimated ${minutesUntilEnd} minutes remaining`
           )
         } else {
           // 如果没有会话窗口，使用默认1小时（兼容旧逻辑）
           const oneHourLater = new Date(Date.now() + 60 * 60 * 1000)
           updatedAccountData.rateLimitEndAt = oneHourLater.toISOString()
           logger.warn(
-            `🚫 Account marked as rate limited (1 hour default): ${accountData.name} (${accountId})`
+            `🚫 Account marked as rate limited (reset time unknown, will probe every 5min): ${accountData.name} (${accountId})`
           )
         }
       }
@@ -1700,10 +1705,17 @@ class ClaudeAccountService {
 
       // 清除限流状态
       const redisKey = `claude:account:${accountId}`
-      await redis.client.hdel(redisKey, 'rateLimitedAt', 'rateLimitStatus', 'rateLimitEndAt')
+      await redis.client.hdel(
+        redisKey,
+        'rateLimitedAt',
+        'rateLimitStatus',
+        'rateLimitEndAt',
+        'rateLimitResetSource'
+      )
       delete accountData.rateLimitedAt
       delete accountData.rateLimitStatus
-      delete accountData.rateLimitEndAt // 清除限流结束时间
+      delete accountData.rateLimitEndAt
+      delete accountData.rateLimitResetSource
 
       const hadAutoStop = accountData.rateLimitAutoStopped === 'true'
 
@@ -1732,7 +1744,8 @@ class ClaudeAccountService {
         'rateLimitedAt',
         'rateLimitStatus',
         'rateLimitEndAt',
-        'rateLimitAutoStopped'
+        'rateLimitAutoStopped',
+        'rateLimitResetSource'
       )
 
       logger.success(`Rate limit removed for account: ${accountData.name} (${accountId})`)

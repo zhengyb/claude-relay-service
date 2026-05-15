@@ -776,7 +776,14 @@ class ClaudeRelayService {
             const resetHeader = response.headers
               ? response.headers['anthropic-ratelimit-unified-reset']
               : null
-            const parsedResetTimestamp = resetHeader ? parseInt(resetHeader, 10) : NaN
+            // 兼容 Unix 秒整数和 ISO date 字符串两种格式
+            const parsedResetTimestamp = (() => {
+              if (!resetHeader) return NaN
+              const asInt = parseInt(resetHeader, 10)
+              if (!isNaN(asInt) && asInt > 1000000000) return asInt
+              const asDate = new Date(resetHeader)
+              return isNaN(asDate.getTime()) ? NaN : Math.ceil(asDate.getTime() / 1000)
+            })()
 
             if (isOpusModelRequest && !Number.isNaN(parsedResetTimestamp)) {
               await claudeAccountService.markAccountOpusRateLimited(accountId, parsedResetTimestamp)
@@ -2960,7 +2967,14 @@ class ClaudeRelayService {
             const resetHeader = res.headers
               ? res.headers['anthropic-ratelimit-unified-reset']
               : null
-            const parsedResetTimestamp = resetHeader ? parseInt(resetHeader, 10) : NaN
+            // 兼容 Unix 秒整数和 ISO date 字符串两种格式
+            const parsedResetTimestamp = (() => {
+              if (!resetHeader) return NaN
+              const asInt = parseInt(resetHeader, 10)
+              if (!isNaN(asInt) && asInt > 1000000000) return asInt
+              const asDate = new Date(resetHeader)
+              return isNaN(asDate.getTime()) ? NaN : Math.ceil(asDate.getTime() / 1000)
+            })()
 
             if (isOpusModelRequest && !Number.isNaN(parsedResetTimestamp)) {
               await claudeAccountService.markAccountOpusRateLimited(accountId, parsedResetTimestamp)
