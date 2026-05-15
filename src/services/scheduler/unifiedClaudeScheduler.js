@@ -430,6 +430,11 @@ class UnifiedClaudeScheduler {
               logger.info(
                 `🎯 Using sticky session account: ${mappedAccount.accountId} (${mappedAccount.accountType}) for session ${sessionHash}`
               )
+              // 如果本次是从强制绑定账户 fallthrough 过来的，携带 rebind 信息，
+              // 确保 api.js 能正确检查 isAutoRebindEnabled() 开关
+              if (rebindFrom) {
+                return { ...mappedAccount, rebind: rebindFrom }
+              }
               return mappedAccount
             } else {
               logger.warn(
@@ -470,7 +475,10 @@ class UnifiedClaudeScheduler {
       const selectedAccount = sortedAccounts[0]
 
       // 如果有会话哈希，建立新的映射
-      if (sessionHash) {
+      // 注意：当强制绑定账户 fallthrough（rebindFrom 已设置）时，不预写 sticky mapping，
+      // 因为 api.js 会根据 isAutoRebindEnabled() 决定是否真正重绑定，
+      // 避免在自动重绑定关闭时产生脏的 sticky session 数据。
+      if (sessionHash && !rebindFrom) {
         await this._setSessionMapping(
           sessionHash,
           selectedAccount.accountId,
