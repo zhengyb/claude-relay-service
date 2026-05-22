@@ -2656,6 +2656,26 @@ class ClaudeRelayService {
           }
         }
 
+        // 将 Anthropic rate limit 响应头透传给下游（在第一次 write 之前设置才有效）
+        if (!responseStream.headersSent) {
+          const rateLimitHeaders = [
+            'anthropic-ratelimit-unified-status',
+            'anthropic-ratelimit-unified-5h-status',
+            'anthropic-ratelimit-unified-5h-reset',
+            'anthropic-ratelimit-unified-5h-utilization',
+            'anthropic-ratelimit-unified-7d-status',
+            'anthropic-ratelimit-unified-7d-reset',
+            'anthropic-ratelimit-unified-7d-utilization',
+            'anthropic-ratelimit-unified-representative-claim',
+            'anthropic-ratelimit-unified-reset'
+          ]
+          for (const h of rateLimitHeaders) {
+            if (res.headers[h] !== undefined) {
+              responseStream.setHeader(h, res.headers[h])
+            }
+          }
+        }
+
         let buffer = ''
         const allUsageData = [] // 收集所有的usage事件
         let currentUsageData = {} // 当前正在收集的usage数据
