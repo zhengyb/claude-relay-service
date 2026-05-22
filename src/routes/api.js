@@ -1739,10 +1739,16 @@ router.get('/v1/session-usage', authenticateApiKey, async (req, res) => {
     }
 
     // ③ 最近一条 usage record
+    let recordsLen = null
+    let latestType = null
+    let latestAccountId = null
     if (!resolved) {
       try {
         const records = await redis.getUsageRecords(req.apiKey.id, 1)
+        recordsLen = records ? records.length : 0
         const latest = records && records[0]
+        latestType = latest ? latest.accountType : null
+        latestAccountId = latest ? latest.accountId : null
         if (latest && latest.accountType === 'claude-official' && latest.accountId) {
           resolved = { accountId: latest.accountId, resolvedBy: 'recent' }
         }
@@ -1752,6 +1758,9 @@ router.get('/v1/session-usage', authenticateApiKey, async (req, res) => {
     }
 
     if (!resolved) {
+      logger.info(
+        `📊 [session-usage] key=${req.apiKey.id} session=${sessionParam || '-'} dedicated=${req.apiKey.claudeAccountId || '-'} recordsLen=${recordsLen} latestType=${JSON.stringify(latestType)} latestAcct=${latestAccountId || '-'} -> no_account (paths missed)`
+      )
       return res.json({
         supported: false,
         reason: 'no_account',
@@ -1765,6 +1774,9 @@ router.get('/v1/session-usage', authenticateApiKey, async (req, res) => {
     // 校验为 Claude OAuth 账号（Setup Token / Console 账号无 oauth/usage 数据）
     const accountData = await redis.getClaudeAccount(accountId)
     if (!accountData || Object.keys(accountData).length === 0) {
+      logger.info(
+        `📊 [session-usage] key=${req.apiKey.id} resolvedBy=${resolvedBy} acct=${accountId} -> no_account (account empty)`
+      )
       return res.json({
         supported: false,
         reason: 'no_account',
@@ -1776,6 +1788,9 @@ router.get('/v1/session-usage', authenticateApiKey, async (req, res) => {
       accountData.scopes && accountData.scopes.trim() ? accountData.scopes.split(' ') : []
     const isOAuth = scopes.includes('user:profile') && scopes.includes('user:inference')
     if (!isOAuth) {
+      logger.info(
+        `📊 [session-usage] key=${req.apiKey.id} resolvedBy=${resolvedBy} acct=${accountId} scopes="${accountData.scopes || ''}" -> not_oauth`
+      )
       return res.json({
         supported: false,
         reason: 'not_oauth',
@@ -1815,6 +1830,9 @@ router.get('/v1/session-usage', authenticateApiKey, async (req, res) => {
     }
 
     if (!snapshot) {
+      logger.info(
+        `📊 [session-usage] key=${req.apiKey.id} resolvedBy=${resolvedBy} acct=${accountId} -> usage_unavailable`
+      )
       return res.json({
         supported: false,
         reason: 'usage_unavailable',
@@ -1823,6 +1841,9 @@ router.get('/v1/session-usage', authenticateApiKey, async (req, res) => {
       })
     }
 
+    logger.info(
+      `📊 [session-usage] key=${req.apiKey.id} resolvedBy=${resolvedBy} acct=${accountId} cached=${cached} stale=${stale} -> supported`
+    )
     return res.json({
       supported: true,
       resolvedBy,
