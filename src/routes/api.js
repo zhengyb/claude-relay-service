@@ -14,6 +14,7 @@ const { updateRateLimitCounters } = require('../utils/rateLimitHelper')
 const claudeRelayConfigService = require('../services/claudeRelayConfigService')
 const claudeAccountService = require('../services/account/claudeAccountService')
 const claudeConsoleAccountService = require('../services/account/claudeConsoleAccountService')
+const redis = require('../models/redis')
 const {
   isWarmupRequest,
   buildMockWarmupResponse,
@@ -1683,6 +1684,162 @@ router.get('/v1/usage', authenticateApiKey, async (req, res) => {
     logger.error('❌ Usage stats error:', error)
     res.status(500).json({
       error: 'Failed to get usage stats',
+      message: error.message
+    })
+  }
+})
+
+// 📊 Statusline 用量端点 - /api/v1/session-usage
+// 供下游 statusline 脚本查询当前 API Key 所用上游 Claude 账号的 oauth/usage
+router.get('/v1/session-usage', authenticateApiKey, async (req, res) => {
+  // 配置开关关闭时，表现为路由不存在（直接读环境变量，避免依赖 gitignore 的 config.js）
+  if (process.env.STATUSLINE_USAGE_ENABLED !== 'true') {
+    return res.status(404).json({
+      error: 'Not Found',
+      message: 'Route /api/v1/session-usage not found',
+      timestamp: new Date().toISOString()
+    })
+  }
+
+  try {
+    // API Key 当日费用（独立于上游账号解析，所有响应分支都返回）
+    const dailyCostLimit = parseFloat(req.apiKey.dailyCostLimit) || 0
+    let dailyCost = null
+    try {
+      dailyCost = await redis.getDailyCost(req.apiKey.id)
+    } catch (costError) {
+      logger.warn(`⚠️ session-usage: failed to read daily cost: ${costError.message}`)
+    }
+    const apiKeyInfo = { dailyCost, dailyCostLimit }
+
+    // 分层解析目标账号：① 精确会话 → ② 专属账号 → ③ 最近 usage record
+    let resolved = null
+
+    // ① 精确会话：?session= → 查粘性会话映射
+    const sessionParam = typeof req.query.session === 'string' ? req.query.session.trim() : ''
+    if (sessionParam && /^[a-fA-F0-9-]{1,64}$/.test(sessionParam)) {
+      try {
+        const raw = await redis
+          .getClientSafe()
+          .get(`unified_claude_session_mapping:${sessionParam}`)
+        if (raw) {
+          const mapping = JSON.parse(raw)
+          if (mapping && mapping.accountId && mapping.accountType === 'claude-official') {
+            resolved = { accountId: mapping.accountId, resolvedBy: 'session' }
+          }
+        }
+      } catch (mappingError) {
+        logger.warn(`⚠️ session-usage: failed to read session mapping: ${mappingError.message}`)
+      }
+    }
+
+    // ② API Key 专属账号
+    if (!resolved && req.apiKey.claudeAccountId) {
+      resolved = { accountId: req.apiKey.claudeAccountId, resolvedBy: 'dedicated' }
+    }
+
+    // ③ 最近一条 usage record
+    if (!resolved) {
+      try {
+        const records = await redis.getUsageRecords(req.apiKey.id, 1)
+        const latest = records && records[0]
+        if (latest && latest.accountType === 'claude-official' && latest.accountId) {
+          resolved = { accountId: latest.accountId, resolvedBy: 'recent' }
+        }
+      } catch (recordError) {
+        logger.warn(`⚠️ session-usage: failed to read usage records: ${recordError.message}`)
+      }
+    }
+
+    if (!resolved) {
+      return res.json({
+        supported: false,
+        reason: 'no_account',
+        apiKey: apiKeyInfo,
+        timestamp: new Date().toISOString()
+      })
+    }
+
+    const { accountId, resolvedBy } = resolved
+
+    // 校验为 Claude OAuth 账号（Setup Token / Console 账号无 oauth/usage 数据）
+    const accountData = await redis.getClaudeAccount(accountId)
+    if (!accountData || Object.keys(accountData).length === 0) {
+      return res.json({
+        supported: false,
+        reason: 'no_account',
+        apiKey: apiKeyInfo,
+        timestamp: new Date().toISOString()
+      })
+    }
+    const scopes =
+      accountData.scopes && accountData.scopes.trim() ? accountData.scopes.split(' ') : []
+    const isOAuth = scopes.includes('user:profile') && scopes.includes('user:inference')
+    if (!isOAuth) {
+      return res.json({
+        supported: false,
+        reason: 'not_oauth',
+        apiKey: apiKeyInfo,
+        timestamp: new Date().toISOString()
+      })
+    }
+
+    // 取 oauth usage（服务端缓存，默认 300 秒，复用 admin 用量页机制）
+    const cacheTtlMs = (parseInt(process.env.STATUSLINE_USAGE_CACHE_TTL, 10) || 300) * 1000
+    let snapshot = claudeAccountService.buildClaudeUsageSnapshot(accountData)
+    const lastUpdatedAt = accountData.claudeUsageUpdatedAt
+      ? new Date(accountData.claudeUsageUpdatedAt).getTime()
+      : 0
+    const isCacheFresh = !!snapshot && lastUpdatedAt > 0 && Date.now() - lastUpdatedAt < cacheTtlMs
+    let cached = true
+    let stale = false
+
+    if (!isCacheFresh) {
+      try {
+        const usageData = await claudeAccountService.fetchOAuthUsage(accountId)
+        if (usageData) {
+          await claudeAccountService.updateClaudeUsageSnapshot(accountId, usageData)
+          const refreshed = await redis.getClaudeAccount(accountId)
+          snapshot = claudeAccountService.buildClaudeUsageSnapshot(refreshed)
+          cached = false
+        } else if (snapshot) {
+          // 上游无返回但本地有旧快照：返回旧快照并标记 stale
+          stale = true
+        }
+      } catch (fetchError) {
+        logger.warn(`⚠️ session-usage: fetchOAuthUsage failed: ${fetchError.message}`)
+        if (snapshot) {
+          stale = true
+        }
+      }
+    }
+
+    if (!snapshot) {
+      return res.json({
+        supported: false,
+        reason: 'usage_unavailable',
+        apiKey: apiKeyInfo,
+        timestamp: new Date().toISOString()
+      })
+    }
+
+    return res.json({
+      supported: true,
+      resolvedBy,
+      cached,
+      stale,
+      usage: {
+        fiveHour: snapshot.fiveHour,
+        sevenDay: snapshot.sevenDay,
+        sevenDayOpus: snapshot.sevenDayOpus
+      },
+      apiKey: apiKeyInfo,
+      timestamp: new Date().toISOString()
+    })
+  } catch (error) {
+    logger.error('❌ Session usage error:', error)
+    return res.status(500).json({
+      error: 'Failed to get session usage',
       message: error.message
     })
   }
