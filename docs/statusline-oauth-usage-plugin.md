@@ -94,7 +94,7 @@ router.get('/v1/session-usage', authenticateApiKey, async (req, res) => { ... })
 1. **配置开关**：`config.statusLineUsage.enabled` 为 `false` → 返回 `404`（与未注册路由一致，不暴露端点存在）。
 2. **解析目标账号（分层，命中即止）**：
    1. **精确会话**：若有 query 参数 `session`，读 `unified_claude_session_mapping:{session}`（逻辑同 `unifiedClaudeScheduler._getSessionMapping()`，`unifiedClaudeScheduler.js:1282`）。命中且 `accountType === 'claude-official'` → 用其 `accountId`，`resolvedBy = 'session'`。
-   2. **专属账号**：未命中 → `req.apiKey.claudeAccountId` 非空 → 用之，`resolvedBy = 'dedicated'`。
+   2. **专属账号**：未命中 → `req.apiKey.claudeAccountId` 非空**且不以 `group:` 开头** → 用之，`resolvedBy = 'dedicated'`。（`group:<id>` 是项目统一的组绑定语法，不是真实 accountId，传给 `getClaudeAccount` 会取空；这种情况下让 path 3 从最近 usage record 取实际命中的账号。）
    3. **最近用量记录**：仍未命中 → `redis.getUsageRecords(req.apiKey.id, 1)` 取 `[0]`，若 `accountType === 'claude-official'` → 用其 `accountId`，`resolvedBy = 'recent'`。
    4. 都没有 → `200 { supported: false, reason: 'no_account' }`。
    - `session` 参数需做基本校验（仅允许 `[a-f0-9-]`、长度上限如 64）；它只会拼接到固定前缀 `unified_claude_session_mapping:` 之后，无法越权读取其他键。

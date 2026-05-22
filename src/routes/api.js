@@ -1733,9 +1733,10 @@ router.get('/v1/session-usage', authenticateApiKey, async (req, res) => {
       }
     }
 
-    // ② API Key 专属账号
-    if (!resolved && req.apiKey.claudeAccountId) {
-      resolved = { accountId: req.apiKey.claudeAccountId, resolvedBy: 'dedicated' }
+    // ② API Key 专属账号（忽略 group:<id> 组绑定，由 path 3 解析实际账号）
+    const dedicatedAcct = req.apiKey.claudeAccountId
+    if (!resolved && dedicatedAcct && !dedicatedAcct.startsWith('group:')) {
+      resolved = { accountId: dedicatedAcct, resolvedBy: 'dedicated' }
     }
 
     // ③ 最近一条 usage record
