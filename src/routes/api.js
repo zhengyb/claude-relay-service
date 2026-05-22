@@ -237,21 +237,6 @@ async function handleMessagesRequest(req, res) {
       `🚀 Processing ${isStream ? 'stream' : 'non-stream'} request for key: ${req.apiKey.name}`
     )
 
-    // 在响应头中附加 API Key 的每日限额和当日已用金额（单位：美元）
-    // 对 stream 和 non-stream 均生效，setHeader 在 Express 中为懒发送
-    {
-      const dailyCost = parseFloat(req.apiKey.dailyCost || 0)
-      const dailyCostLimit = parseFloat(req.apiKey.dailyCostLimit || 0)
-      res.setHeader('x-ratelimit-daily-cost-usd', dailyCost.toFixed(6))
-      if (dailyCostLimit > 0) {
-        res.setHeader('x-ratelimit-daily-limit-usd', dailyCostLimit.toFixed(2))
-        res.setHeader(
-          'x-ratelimit-daily-remaining-usd',
-          Math.max(0, dailyCostLimit - dailyCost).toFixed(6)
-        )
-      }
-    }
-
     if (isStream) {
       // 🔍 检查客户端连接是否仍然有效（可能在并发排队等待期间断开）
       if (res.destroyed || res.socket?.destroyed || res.writableEnded) {
