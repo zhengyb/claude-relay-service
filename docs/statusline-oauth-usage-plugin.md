@@ -9,7 +9,7 @@
 **目标**：为 Claude Code 开发一个 statusline 插件，脚本向 relay 查询「当前 API Key 所用上游 Claude 账号」的 oauth/usage，并实时显示在状态栏：
 
 ```
-5h 42% (2h13m) · 7d 18% (4d) · sonnet 9%
+Usage: upstream 5h 42% (2h13m), 7d 18% (4d), sonnet 9% (4d); Daily $1.23/$10
 ```
 
 ## 2. 可行性分析
@@ -175,7 +175,7 @@ STATUSLINE_USAGE_CACHE_TTL=300
 4. 否则请求 `GET {BASE}/v1/session-usage?session={session_id}`（`ANTHROPIC_BASE_URL` 按约定已含 `/api` 后缀，故端点绝对路径为 `/api/v1/session-usage`），头 `Authorization: Bearer {key}`，**超时 2 秒**。
 5. 格式化输出（三窗口 + 重置时间 + API Key 当日费用）：
    ```
-   5h 42% (2h13m) · 7d 18% (4d) · sonnet 9% · $1.23/$10
+   Usage: upstream 5h 42% (2h13m), 7d 18% (4d), sonnet 9% (4d); Daily $1.23/$10
    ```
    - utilization 单位兼容：值 `<= 1` 视为比例，乘以 100；
    - `remainingSeconds` 格式化为 `Xh Ym` / `Xd` / `<1m`；剩余 ≤0 不显示括号；

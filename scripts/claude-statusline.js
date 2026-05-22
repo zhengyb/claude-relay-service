@@ -182,13 +182,13 @@ function formatCost(apiKey) {
 }
 
 // 接口响应 → 状态栏一行文本
+// 输出格式: "Usage: upstream 5h x% (...), 7d y% (...), sonnet z% (...); Daily $a/$b"
 function formatLine(data) {
-  const segments = []
-
+  // upstream 段：三窗口或占位
+  let upstream
   if (!data || data.supported === false) {
-    segments.push(
-      data && data.reason === 'not_oauth' ? 'Claude (账号无配额数据)' : 'Claude (暂无数据)'
-    )
+    upstream =
+      data && data.reason === 'not_oauth' ? 'upstream (账号无配额数据)' : 'upstream (暂无数据)'
   } else {
     const usage = data.usage || {}
     const windows = [
@@ -196,18 +196,19 @@ function formatLine(data) {
       formatWindow('7d', usage.sevenDay),
       formatWindow('sonnet', usage.sevenDayOpus)
     ].filter(Boolean)
-    // stale：数据来自旧快照（上游本次取数失败），加 ~ 前缀提示
-    segments.push(
-      windows.length > 0 ? (data.stale ? '~' : '') + windows.join(' · ') : 'Claude (暂无数据)'
-    )
+    upstream =
+      windows.length > 0
+        ? `upstream ${data.stale ? '~' : ''}${windows.join(', ')}`
+        : 'upstream (暂无数据)'
   }
 
-  // API Key 当日费用段（解析失败时不显示）
+  // Daily 段：API Key 当日费用（解析失败则省略）
   const cost = data ? formatCost(data.apiKey) : null
+  const segments = [upstream]
   if (cost) {
-    segments.push(cost)
+    segments.push(`Daily ${cost}`)
   }
-  return segments.join(' · ')
+  return `Usage: ${segments.join('; ')}`
 }
 
 async function main() {
