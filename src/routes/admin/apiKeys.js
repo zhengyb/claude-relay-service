@@ -1281,7 +1281,10 @@ async function calculateKeyStats(keyId, timeRange, startDate, endDate) {
         continue
       }
       // 跳过非当前月的日数据（非当前月用月数据）
-      if (!isMonthly && !key.includes(`:${currentMonth}-`)) {
+      // 注意：7days/30days/custom 使用确切日期的每日 key，无需此去重（否则跨月数据缺失）
+      const isSpecificDateRange =
+        timeRange === '7days' || timeRange === '30days' || timeRange === 'custom'
+      if (!isSpecificDateRange && !isMonthly && !key.includes(`:${currentMonth}-`)) {
         continue
       }
     }
