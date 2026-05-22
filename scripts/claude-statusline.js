@@ -3,8 +3,9 @@
  * Claude Code statusline 插件
  *
  * 向 Claude Relay Service 查询「当前 API Key 所用上游 Claude 账号」的 oauth/usage，
- * 在状态栏显示 5h / 7d / sonnet 三个窗口的利用率与重置剩余时间，例如：
- *   5h 42% (2h13m) · 7d 18% (4d) · sonnet 9%
+ * 在状态栏渲染两行(stdin 字段缺失时顶部行可省略)，例如：
+ *   Sonnet · claude-relay-service · $0.35 · 12m12s
+ *   Upstream Usage: 5h 16% (3h29m), 7d 43% (3d), sonnet 21% (3d); My Daily Usage: $14.85/$200
  *
  * 安装：在 ~/.claude/settings.json 中添加
  *   {
@@ -239,13 +240,12 @@ function formatTopLine(input) {
 }
 
 // 接口响应 → 状态栏 Usage 行
-// 输出格式: "Usage: upstream 5h x% (...), 7d y% (...), sonnet z% (...); Daily $a/$b"
+// 输出格式: "Upstream Usage: 5h x% (...), 7d y% (...), sonnet z% (...); My Daily Usage: $a/$b"
 function formatLine(data) {
-  // upstream 段：三窗口或占位
+  // Upstream Usage 段：三窗口或占位
   let upstream
   if (!data || data.supported === false) {
-    upstream =
-      data && data.reason === 'not_oauth' ? 'upstream (账号无配额数据)' : 'upstream (暂无数据)'
+    upstream = data && data.reason === 'not_oauth' ? '(账号无配额数据)' : '(暂无数据)'
   } else {
     const usage = data.usage || {}
     const windows = [
@@ -253,19 +253,16 @@ function formatLine(data) {
       formatWindow('7d', usage.sevenDay),
       formatWindow('sonnet', usage.sevenDayOpus)
     ].filter(Boolean)
-    upstream =
-      windows.length > 0
-        ? `upstream ${data.stale ? '~' : ''}${windows.join(', ')}`
-        : 'upstream (暂无数据)'
+    upstream = windows.length > 0 ? `${data.stale ? '~' : ''}${windows.join(', ')}` : '(暂无数据)'
   }
 
-  // Daily 段：API Key 当日费用（解析失败则省略）
+  // My Daily Usage 段：API Key 当日费用（解析失败则省略）
   const cost = data ? formatCost(data.apiKey) : null
-  const segments = [upstream]
+  const segments = [`Upstream Usage: ${upstream}`]
   if (cost) {
-    segments.push(`Daily ${cost}`)
+    segments.push(`My Daily Usage: ${cost}`)
   }
-  return `Usage: ${segments.join('; ')}`
+  return segments.join('; ')
 }
 
 async function main() {

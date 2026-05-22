@@ -10,7 +10,7 @@
 
 ```
 Sonnet · claude-relay-service · $0.35 · 12m12s
-Usage: upstream 5h 42% (2h13m), 7d 18% (4d), sonnet 9% (4d); Daily $1.23/$10
+Upstream Usage: 5h 42% (2h13m), 7d 18% (4d), sonnet 9% (4d); My Daily Usage: $1.23/$10
 ```
 
 第一行来自 Claude Code 传给 statusline 的 stdin JSON(`model.display_name` / `workspace.current_dir` 的 basename / `cost.total_cost_usd` / `cost.total_duration_ms`)，每次渲染实时计算；第二行 Usage 部分来自 relay 端点，走 60 秒本地缓存。
@@ -179,7 +179,7 @@ STATUSLINE_USAGE_CACHE_TTL=300
 5. 格式化输出(顶部行 + Usage 行)：
    ```
    Sonnet · claude-relay-service · $0.35 · 12m12s
-   Usage: upstream 5h 42% (2h13m), 7d 18% (4d), sonnet 9% (4d); Daily $1.23/$10
+   Upstream Usage: 5h 42% (2h13m), 7d 18% (4d), sonnet 9% (4d); My Daily Usage: $1.23/$10
    ```
    - 顶部行:`<model> · <cwd-basename> · $<cost> · <duration>`，字段从 stdin 取，缺则省略该段；全缺则不输出顶部行。
    - 时长格式:`Xms` / `Xs` / `XmYs` / `XhYm`。
