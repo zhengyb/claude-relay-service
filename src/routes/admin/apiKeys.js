@@ -1102,6 +1102,14 @@ async function calculateKeyStats(keyId, timeRange, startDate, endDate) {
       const dateStr = redis.getDateStringInTimezone(d)
       searchPatterns.push(`usage:${keyId}:model:daily:*:${dateStr}`)
     }
+  } else if (timeRange === '30days') {
+    // 最近30天
+    for (let i = 0; i < 30; i++) {
+      const d = new Date(tzDate)
+      d.setDate(d.getDate() - i)
+      const dateStr = redis.getDateStringInTimezone(d)
+      searchPatterns.push(`usage:${keyId}:model:daily:*:${dateStr}`)
+    }
   } else if (timeRange === 'monthly') {
     // 当月
     const currentMonth = `${tzDate.getUTCFullYear()}-${String(tzDate.getUTCMonth() + 1).padStart(2, '0')}`
