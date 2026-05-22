@@ -13,7 +13,9 @@ Sonnet · claude-relay-service · $0.35 · 12m12s
 Upstream Usage: 5h 42% (2h13m), 7d 18% (4d), sonnet 9% (4d); My Daily Usage: $1.23/$10
 ```
 
-第一行来自 Claude Code 传给 statusline 的 stdin JSON(`model.display_name` / `workspace.current_dir` 的 basename / `cost.total_cost_usd` / `cost.total_duration_ms`)，每次渲染实时计算；第二行 Usage 部分来自 relay 端点，走 60 秒本地缓存。
+第一行来自 Claude Code 传给 statusline 的 stdin JSON(`model.display_name` / `workspace.current_dir` 的 basename / `cost.total_cost_usd` / `cost.total_duration_ms`)，每次渲染实时计算；第二行 Usage 部分来自 relay 端点，走 10 秒本地缓存。
+
+> **客户端实现已独立成 Claude Code 插件:** [zhengyb/Claude-Code-my-statusline](https://github.com/zhengyb/Claude-Code-my-statusline)。本文档保留 relay 端(端点)设计;客户端脚本细节以该插件仓库为准。
 
 ## 2. 可行性分析
 
@@ -63,12 +65,12 @@ Upstream Usage: 5h 42% (2h13m), 7d 18% (4d), sonnet 9% (4d); My Daily Usage: $1.
 │  Claude Code (客户端)     │         │        Claude Relay Service            │
 │                          │         │                                        │
 │  statusLine 命令:         │  HTTPS  │  GET /v1/session-usage?session=…       │
-│  node claude-statusline  │ ──────► │  (authenticateApiKey)                  │
-│   .js                    │         │   │                                    │
+│  crs-statusline 插件     │ ──────► │  (authenticateApiKey)                  │
+│   (独立仓库)              │         │   │                                    │
 │   - 读 stdin session_id  │         │   ├─ 解析账号(分层):                   │
 │   - 读 env (BASE/KEY)    │         │   │   ① session 映射直查              │
-│   - 本地缓存 60s          │ ◄────── │   │   ② API Key 专属账号              │
-│   - 打印状态栏一行        │  JSON   │   │   ③ 最近 usage record             │
+│   - 本地缓存 10s          │ ◄────── │   │   ② API Key 专属账号              │
+│   - 打印状态栏两行        │  JSON   │   │   ③ 最近 usage record             │
 │                          │         │   ├─ 校验 OAuth 账号 (scopes)          │
 │                          │         │   └─ 300s 缓存 → fetchOAuthUsage       │
 │                          │         │                  → Anthropic API       │
@@ -77,8 +79,8 @@ Upstream Usage: 5h 42% (2h13m), 7d 18% (4d), sonnet 9% (4d); My Daily Usage: $1.
 
 两个组件：
 
-1. **relay 新端点** `GET /api/v1/session-usage` — 修改 `src/routes/api.js`
-2. **客户端 statusline 脚本** `scripts/claude-statusline.js` — 新建（Node 单文件，零依赖）
+1. **relay 新端点** `GET /api/v1/session-usage` — 修改 `src/routes/api.js`(本仓库)
+2. **客户端 statusline 插件** — 独立仓库 [zhengyb/Claude-Code-my-statusline](https://github.com/zhengyb/Claude-Code-my-statusline)(Node 单文件,零依赖)
 
 ## 4. 组件一：Relay 端点
 
@@ -166,51 +168,38 @@ STATUSLINE_USAGE_CACHE_TTL=300
 
 `authenticateApiKey`、`claudeAccountService.{fetchOAuthUsage, buildClaudeUsageSnapshot, updateClaudeUsageSnapshot}`、`redis.{getClaudeAccount, getUsageRecords, getDailyCost}`。粘性映射读取直接 `redis` GET `unified_claude_session_mapping:{session}`（逻辑同 `unifiedClaudeScheduler._getSessionMapping()`，3 行）。**不新增 service**。
 
-## 5. 组件二：Statusline 脚本
+## 5. 组件二：Statusline 客户端插件
 
-新建 `scripts/claude-statusline.js`：Node 单文件，仅用内置 `https` / `http` / `fs` / `os` 模块，**零依赖、零安装**（所有 Claude Code 用户均已具备 Node 环境）。
+客户端实现已独立为 Claude Code 插件:**[zhengyb/Claude-Code-my-statusline](https://github.com/zhengyb/Claude-Code-my-statusline)**(Node 单文件,仅用内置 `https` / `http` / `fs` / `os` 模块,**零依赖、零安装**)。
 
-### 5.1 行为流程
+行为要点(详见插件仓库 README):
 
-1. 读取 stdin 的 Claude Code JSON：取 `session_id`(用于精确会话查询)、以及顶部行所需字段(`model.display_name`、`workspace.current_dir`、`cost.total_cost_usd`、`cost.total_duration_ms`，任一缺失即省略该段)。
-2. 读取环境变量：`ANTHROPIC_BASE_URL`（去除尾斜杠）、`ANTHROPIC_AUTH_TOKEN || ANTHROPIC_API_KEY`。
-3. **本地缓存** `${os.tmpdir()}/claude-relay-statusline-{session_id}.json`（内容 `{ ts, line }`，按会话分文件避免多会话互相覆盖）：若距今 < 60 秒，直接打印缓存行并退出——保证 statusline 秒回，避免每次渲染都打 relay。
-4. 否则请求 `GET {BASE}/v1/session-usage?session={session_id}`（`ANTHROPIC_BASE_URL` 按约定已含 `/api` 后缀，故端点绝对路径为 `/api/v1/session-usage`），头 `Authorization: Bearer {key}`，**超时 2 秒**。
-5. 格式化输出(顶部行 + Usage 行)：
-   ```
-   Sonnet · claude-relay-service · $0.35 · 12m12s
-   Upstream Usage: 5h 42% (2h13m), 7d 18% (4d), sonnet 9% (4d); My Daily Usage: $1.23/$10
-   ```
-   - 顶部行:`<model> · <cwd-basename> · $<cost> · <duration>`，字段从 stdin 取，缺则省略该段；全缺则不输出顶部行。
-   - 时长格式:`Xms` / `Xs` / `XmYs` / `XhYm`。
-   - utilization 单位兼容：值 `<= 1` 视为比例，乘以 100；
-   - `remainingSeconds` 格式化为 `Xh Ym` / `Xd` / `<1m`；剩余 ≤0 不显示括号；
-   - 费用段 `$已用/$限额` 来自响应 `apiKey` 块；无每日限额（`dailyCostLimit` 为 0）时限额显示 `$NA`；
-   - `supported: false` → 打印简短提示（如 `Claude (账号无配额数据)`），费用段仍照常拼接。
-6. 写入本地缓存，打印一行。
-7. **容错**：任何错误 / 超时 → 打印过期缓存行（若有），否则打印中性占位（如 `Claude —`）。脚本**始终 `exit 0`、永不抛错**，避免拖垮 statusline 渲染。
+- 读取 stdin 的 Claude Code JSON,取 `session_id` 及顶部行所需字段。
+- 读取 `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN`(或 `ANTHROPIC_API_KEY`)环境变量。
+- 本地缓存 `${os.tmpdir()}/claude-relay-statusline-{session_id}.json`,TTL **10 秒**,按会话分文件。
+- 请求 `GET {BASE}/v1/session-usage?session={session_id}`(Bearer 认证,**超时 2 秒**)。
+- 格式化输出两行(顶部行从 stdin 实时计算;底部 Usage 行来自端点响应)。
+- **任何错误都吞掉**,始终 `exit 0`,永不拖垮 statusline 渲染。
 
-### 5.2 接入方式
+安装方式(从 Claude Code 内):
 
-在 `~/.claude/settings.json` 添加：
-
-```json
-{
-  "statusLine": {
-    "type": "command",
-    "command": "node /绝对路径/claude-relay-service/scripts/claude-statusline.js"
-  }
-}
+```
+/plugin marketplace add zhengyb/Claude-Code-my-statusline
+/plugin install crs-statusline@crs-marketplace
+/reload-plugins
+/crs-statusline:setup
 ```
 
-脚本依赖 Claude Code 进程已设置的 `ANTHROPIC_BASE_URL` 与 `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY` 环境变量。
+`/crs-statusline:setup` 会把脚本下载到 `~/.claude/crs-statusline.js`,并自动改写 `~/.claude/settings.json`。
+
+> 客户端依赖 Claude Code 进程已设置的 `ANTHROPIC_BASE_URL` 与 `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY` 环境变量。
 
 ## 6. 数据流
 
 ```
 Claude Code 渲染 statusline（stdin 传入 session_id）
-  → 执行 node claude-statusline.js
-    → 本地缓存命中(<60s)? ── 是 → 打印缓存行
+  → 执行 crs-statusline.js (插件脚本)
+    → 本地缓存命中(<10s)? ── 是 → 打印缓存行
                           └─ 否 ↓
     → GET {relay}/api/v1/session-usage?session={session_id}  (Bearer cr_key, 超时 2s)
         → authenticateApiKey
@@ -223,7 +212,7 @@ Claude Code 渲染 statusline（stdin 传入 session_id）
     → 脚本格式化 → 写本地缓存 → 打印一行
 ```
 
-两级缓存：脚本本地 60 秒 + relay 服务端 300 秒。即使多个 statusline 频繁渲染，对 Anthropic 上游的真实调用上限约为「每账号每 5 分钟一次」。
+两级缓存：脚本本地 10 秒 + relay 服务端 300 秒。即使多个 statusline 频繁渲染，对 Anthropic 上游的真实调用上限约为「每账号每 5 分钟一次」。
 
 ## 7. 边界情况与错误处理
 
@@ -251,7 +240,8 @@ Claude Code 渲染 statusline（stdin 传入 session_id）
 |------|------|------|
 | `src/routes/api.js` | 修改 | 新增 `GET /v1/session-usage` 路由（直读环境变量开关） |
 | `.env.example` | 修改 | 新增 `STATUSLINE_USAGE_ENABLED` / `STATUSLINE_USAGE_CACHE_TTL` |
-| `scripts/claude-statusline.js` | 新建 | 客户端 statusline 脚本（Node 零依赖） |
+
+客户端 statusline 脚本不在本仓库,见独立插件仓库 [zhengyb/Claude-Code-my-statusline](https://github.com/zhengyb/Claude-Code-my-statusline)。
 
 ## 10. 测试与验证
 
@@ -266,14 +256,14 @@ Claude Code 渲染 statusline（stdin 传入 session_id）
 5. **端点 — 开关关闭**：不设 `STATUSLINE_USAGE_ENABLED`，预期 `404`。
 6. **端点 — 非 OAuth**：用绑定 Setup Token / Console 账号的 Key，预期 `supported:false, reason:'not_oauth'`。
 7. **端点 — 无账号**：用全新、未发过请求且无专属账号的 Key（且不带 session），预期 `supported:false, reason:'no_account'`。
-8. **脚本**：
+8. **脚本**(在插件仓库本地 clone 内):
    ```
    echo '{"session_id":"<id>","model":{"display_name":"Sonnet"}}' | \
      ANTHROPIC_BASE_URL=http://127.0.0.1:3000/api ANTHROPIC_AUTH_TOKEN=cr_xxx \
-     node scripts/claude-statusline.js
+     node crs-statusline.js
    ```
    预期打印 `5h .. · 7d .. · sonnet ..`；故意改错 URL 时不报错、打印占位。
-9. **端到端**：在 `~/.claude/settings.json` 配置 `statusLine`，重启 Claude Code，确认状态栏实时显示。
+9. **端到端**：装好客户端插件(`/crs-statusline:setup`)后重启 Claude Code，确认状态栏实时显示。
 10. 对修改的后端文件执行 `npx prettier --write` 与 `npm run lint`。
 
 ## 11. 后续可选增强
