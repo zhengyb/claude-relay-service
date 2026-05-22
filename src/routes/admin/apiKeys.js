@@ -1215,8 +1215,45 @@ async function calculateKeyStats(keyId, timeRange, startDate, endDate) {
     allTimeCost
   }
 
-  // 如果没有使用数据，返回零值但包含窗口数据
+  // 如果没有使用数据，尝试从 usage:cost:daily 获取费用（与排序索引同源，避免显示不一致）
   if (uniqueKeys.length === 0) {
+    let fallbackCost = 0
+    try {
+      if (timeRange === 'today') {
+        const v = await client.get(`usage:cost:daily:${keyId}:${today}`)
+        fallbackCost = parseFloat(v) || 0
+      } else if (timeRange === '7days') {
+        const fbPipeline = client.pipeline()
+        for (let i = 0; i < 7; i++) {
+          const d = new Date(tzDate)
+          d.setDate(d.getDate() - i)
+          fbPipeline.get(`usage:cost:daily:${keyId}:${redis.getDateStringInTimezone(d)}`)
+        }
+        const fbResults = await fbPipeline.exec()
+        for (const [, v] of fbResults) fallbackCost += parseFloat(v) || 0
+      } else if (timeRange === '30days') {
+        const fbPipeline = client.pipeline()
+        for (let i = 0; i < 30; i++) {
+          const d = new Date(tzDate)
+          d.setDate(d.getDate() - i)
+          fbPipeline.get(`usage:cost:daily:${keyId}:${redis.getDateStringInTimezone(d)}`)
+        }
+        const fbResults = await fbPipeline.exec()
+        for (const [, v] of fbResults) fallbackCost += parseFloat(v) || 0
+      } else if (timeRange === 'custom' && startDate && endDate) {
+        const fbPipeline = client.pipeline()
+        const start = new Date(startDate)
+        const end = new Date(endDate)
+        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+          fbPipeline.get(`usage:cost:daily:${keyId}:${redis.getDateStringInTimezone(d)}`)
+        }
+        const fbResults = await fbPipeline.exec()
+        for (const [, v] of fbResults) fallbackCost += parseFloat(v) || 0
+      }
+    } catch (_e) {
+      // ignore fallback errors
+    }
+    const fbFormatted = fallbackCost > 0 ? `$${fallbackCost.toFixed(4)}` : '$0.00'
     return {
       requests: 0,
       tokens: 0,
@@ -1224,9 +1261,9 @@ async function calculateKeyStats(keyId, timeRange, startDate, endDate) {
       outputTokens: 0,
       cacheCreateTokens: 0,
       cacheReadTokens: 0,
-      cost: 0,
-      realCost: 0,
-      formattedCost: '$0.00',
+      cost: fallbackCost,
+      realCost: fallbackCost,
+      formattedCost: fbFormatted,
       ...limitData
     }
   }
