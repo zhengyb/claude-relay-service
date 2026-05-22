@@ -181,7 +181,64 @@ function formatCost(apiKey) {
   return `$${used.toFixed(2)}/${limitStr}`
 }
 
-// 接口响应 → 状态栏一行文本
+// 毫秒数 → 紧凑文本：ms / s / XmYs / XhYm
+function fmtDuration(ms) {
+  if (ms === null || ms === undefined) {
+    return null
+  }
+  const n = Number(ms)
+  if (Number.isNaN(n) || n < 0) {
+    return null
+  }
+  if (n < 1000) {
+    return `${Math.round(n)}ms`
+  }
+  const totalSec = Math.floor(n / 1000)
+  if (totalSec < 60) {
+    return `${totalSec}s`
+  }
+  const totalMin = Math.floor(totalSec / 60)
+  const remSec = totalSec % 60
+  if (totalMin < 60) {
+    return remSec > 0 ? `${totalMin}m${remSec}s` : `${totalMin}m`
+  }
+  const h = Math.floor(totalMin / 60)
+  const remMin = totalMin % 60
+  return remMin > 0 ? `${h}h${remMin}m` : `${h}h`
+}
+
+// Claude Code 传入的 stdin JSON → 顶部一行: "<model> · <cwd-basename> · $<cost> · <duration>"
+// 任一字段缺失则不显示该段；全缺则返回 ''（外层会省略整行）。
+function formatTopLine(input) {
+  if (!input || typeof input !== 'object') {
+    return ''
+  }
+  const segments = []
+
+  const model = input.model && input.model.display_name
+  if (typeof model === 'string' && model) {
+    segments.push(model)
+  }
+
+  const cwd = input.workspace && input.workspace.current_dir
+  if (typeof cwd === 'string' && cwd) {
+    segments.push(path.basename(cwd) || cwd)
+  }
+
+  const cost = input.cost && input.cost.total_cost_usd
+  if (typeof cost === 'number' && !Number.isNaN(cost)) {
+    segments.push(`$${cost.toFixed(2)}`)
+  }
+
+  const durStr = fmtDuration(input.cost && input.cost.total_duration_ms)
+  if (durStr) {
+    segments.push(durStr)
+  }
+
+  return segments.join(' · ')
+}
+
+// 接口响应 → 状态栏 Usage 行
 // 输出格式: "Usage: upstream 5h x% (...), 7d y% (...), sonnet z% (...); Daily $a/$b"
 function formatLine(data) {
   // upstream 段：三窗口或占位
@@ -216,17 +273,23 @@ async function main() {
   const sessionId = typeof input.session_id === 'string' ? input.session_id : ''
   const file = cacheFilePath(sessionId)
 
-  // 本地缓存命中（<60s）：直接打印，保证 statusline 秒回
+  // 顶部行(model/cwd/cost/duration)每次从 stdin 实时计算；只有 Usage 行走 60s 缓存
+  const topLine = formatTopLine(input)
+  const print = (usageLine) => {
+    process.stdout.write(topLine ? `${topLine}\n${usageLine}` : usageLine)
+  }
+
+  // 本地缓存命中（<60s）：直接打印缓存的 Usage 行 + 实时顶部行
   const cache = readCache(file)
   if (cache && Date.now() - cache.ts < LOCAL_CACHE_TTL_MS) {
-    process.stdout.write(cache.line)
+    print(cache.line)
     return
   }
 
   const baseUrl = (process.env.ANTHROPIC_BASE_URL || '').replace(/\/+$/, '')
   const apiKey = process.env.ANTHROPIC_AUTH_TOKEN || process.env.ANTHROPIC_API_KEY || ''
   if (!baseUrl || !apiKey) {
-    process.stdout.write(cache ? cache.line : 'Claude —')
+    print(cache ? cache.line : 'Claude —')
     return
   }
 
@@ -234,14 +297,14 @@ async function main() {
     const { status, data } = await fetchUsage(baseUrl, apiKey, sessionId)
     if (status !== 200) {
       // 端点关闭(404) 或服务端错误：回退到旧缓存或占位
-      process.stdout.write(cache ? cache.line : 'Claude —')
+      print(cache ? cache.line : 'Claude —')
       return
     }
-    const line = formatLine(data)
-    writeCache(file, line)
-    process.stdout.write(line)
+    const usageLine = formatLine(data)
+    writeCache(file, usageLine)
+    print(usageLine)
   } catch (_err) {
-    process.stdout.write(cache ? cache.line : 'Claude —')
+    print(cache ? cache.line : 'Claude —')
   }
 }
 

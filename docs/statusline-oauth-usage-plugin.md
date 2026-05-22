@@ -6,11 +6,14 @@
 
 但**下游用户**（用 Claude Code 接入本 relay）看不到这些信息——他们在使用共享账号池，却无法得知当前所用上游账号的配额还剩多少。当账号接近 5h 限流时，用户往往只能在请求失败后才察觉。
 
-**目标**：为 Claude Code 开发一个 statusline 插件，脚本向 relay 查询「当前 API Key 所用上游 Claude 账号」的 oauth/usage，并实时显示在状态栏：
+**目标**：为 Claude Code 开发一个 statusline 插件，脚本向 relay 查询「当前 API Key 所用上游 Claude 账号」的 oauth/usage，并实时显示在状态栏(两行)：
 
 ```
+Sonnet · claude-relay-service · $0.35 · 12m12s
 Usage: upstream 5h 42% (2h13m), 7d 18% (4d), sonnet 9% (4d); Daily $1.23/$10
 ```
+
+第一行来自 Claude Code 传给 statusline 的 stdin JSON(`model.display_name` / `workspace.current_dir` 的 basename / `cost.total_cost_usd` / `cost.total_duration_ms`)，每次渲染实时计算；第二行 Usage 部分来自 relay 端点，走 60 秒本地缓存。
 
 ## 2. 可行性分析
 
@@ -169,14 +172,17 @@ STATUSLINE_USAGE_CACHE_TTL=300
 
 ### 5.1 行为流程
 
-1. 读取 stdin 的 Claude Code JSON，取出 `session_id`（用于精确会话查询）；`model.display_name` 可选用于拼接前缀。
+1. 读取 stdin 的 Claude Code JSON：取 `session_id`(用于精确会话查询)、以及顶部行所需字段(`model.display_name`、`workspace.current_dir`、`cost.total_cost_usd`、`cost.total_duration_ms`，任一缺失即省略该段)。
 2. 读取环境变量：`ANTHROPIC_BASE_URL`（去除尾斜杠）、`ANTHROPIC_AUTH_TOKEN || ANTHROPIC_API_KEY`。
 3. **本地缓存** `${os.tmpdir()}/claude-relay-statusline-{session_id}.json`（内容 `{ ts, line }`，按会话分文件避免多会话互相覆盖）：若距今 < 60 秒，直接打印缓存行并退出——保证 statusline 秒回，避免每次渲染都打 relay。
 4. 否则请求 `GET {BASE}/v1/session-usage?session={session_id}`（`ANTHROPIC_BASE_URL` 按约定已含 `/api` 后缀，故端点绝对路径为 `/api/v1/session-usage`），头 `Authorization: Bearer {key}`，**超时 2 秒**。
-5. 格式化输出（三窗口 + 重置时间 + API Key 当日费用）：
+5. 格式化输出(顶部行 + Usage 行)：
    ```
+   Sonnet · claude-relay-service · $0.35 · 12m12s
    Usage: upstream 5h 42% (2h13m), 7d 18% (4d), sonnet 9% (4d); Daily $1.23/$10
    ```
+   - 顶部行:`<model> · <cwd-basename> · $<cost> · <duration>`，字段从 stdin 取，缺则省略该段；全缺则不输出顶部行。
+   - 时长格式:`Xms` / `Xs` / `XmYs` / `XhYm`。
    - utilization 单位兼容：值 `<= 1` 视为比例，乘以 100；
    - `remainingSeconds` 格式化为 `Xh Ym` / `Xd` / `<1m`；剩余 ≤0 不显示括号；
    - 费用段 `$已用/$限额` 来自响应 `apiKey` 块；无每日限额（`dailyCostLimit` 为 0）时限额显示 `$NA`；
