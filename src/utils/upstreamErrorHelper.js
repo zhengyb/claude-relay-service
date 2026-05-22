@@ -479,6 +479,56 @@ const getAllTempUnavailable = async () => {
   }
 }
 
+// 查询单个账户的 temp_unavailable 剩余冷却秒数（不存在则返回 null）
+const getTempUnavailableRemainingSeconds = async (accountId, accountType) => {
+  try {
+    const redis = getRedis()
+    const client = redis.getClientSafe()
+    const key = `${TEMP_UNAVAILABLE_PREFIX}:${accountType}:${accountId}`
+    const ttl = await client.ttl(key)
+    return ttl > 0 ? ttl : null
+  } catch {
+    return null
+  }
+}
+
+// 查询所有 claude-official 账户中最短的 temp_unavailable 剩余冷却秒数。
+// 若池中有账户没有 temp_unavailable key（即其不可用原因非 429 冷却），返回 null，
+// 表示池耗尽不完全是 rate limit 导致的，不应返回 429。
+const getMinTempUnavailableSeconds = async (accountType) => {
+  try {
+    const redis = getRedis()
+    const client = redis.getClientSafe()
+    const pattern = `${TEMP_UNAVAILABLE_PREFIX}:${accountType}:*`
+
+    // 用 SCAN 遍历该类型所有 temp_unavailable key
+    const keys = []
+    let cursor = '0'
+    do {
+      const result = await client.scan(cursor, 'MATCH', pattern, 'COUNT', 100)
+      cursor = result[0]
+      keys.push(...result[1])
+    } while (cursor !== '0')
+
+    if (keys.length === 0) {
+      return null
+    }
+
+    // 对每个 key 查询 TTL
+    const ttls = await Promise.all(keys.map((k) => client.ttl(k)))
+    const validTtls = ttls.filter((t) => t > 0)
+
+    // 必须所有 key 都有有效 TTL，否则说明有异常情况
+    if (validTtls.length !== keys.length) {
+      return null
+    }
+
+    return Math.min(...validTtls)
+  } catch {
+    return null
+  }
+}
+
 // 清洗上游错误数据，去除内部路由标识（如 [codex/codex]）
 const sanitizeErrorForClient = (errorData) => {
   if (!errorData || typeof errorData !== 'object') {
@@ -500,6 +550,8 @@ module.exports = {
   getAllTempUnavailable,
   classifyError,
   parseRetryAfter,
+  getTempUnavailableRemainingSeconds,
+  getMinTempUnavailableSeconds,
   sanitizeErrorForClient,
   recordErrorHistory,
   getErrorHistory,

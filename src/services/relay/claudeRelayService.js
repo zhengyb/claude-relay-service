@@ -839,40 +839,43 @@ class ClaudeRelayService {
         }
 
         if (isRateLimited) {
-          if (isDedicatedOfficialAccount && !dedicatedRateLimitMessage) {
-            dedicatedRateLimitMessage = this._buildStandardRateLimitMessage(
-              rateLimitResetTimestamp || account?.rateLimitEndAt
-            )
-          }
           logger.warn(
             `🚫 Rate limit detected for account ${accountId}, status: ${response.statusCode}`
           )
-          // 标记账号为限流状态并删除粘性会话映射，传递准确的重置时间戳
-          await unifiedClaudeScheduler.markAccountRateLimited(
-            accountId,
-            accountType,
-            sessionHash,
-            rateLimitResetTimestamp
-          )
-          await upstreamErrorHelper
+          // 仅在上游返回了准确重置时间时才做长期封锁
+          if (!Number.isNaN(rateLimitResetTimestamp)) {
+            if (isDedicatedOfficialAccount && !dedicatedRateLimitMessage) {
+              dedicatedRateLimitMessage = this._buildStandardRateLimitMessage(
+                rateLimitResetTimestamp || account?.rateLimitEndAt
+              )
+            }
+            await unifiedClaudeScheduler.markAccountRateLimited(
+              accountId,
+              accountType,
+              sessionHash,
+              rateLimitResetTimestamp
+            )
+          }
+          // 始终执行短期冷却（300s），获取实际 TTL 用于 Retry-After
+          const tempResult = await upstreamErrorHelper
             .markTempUnavailable(
               accountId,
               accountType,
               429,
               upstreamErrorHelper.parseRetryAfter(response.headers)
             )
-            .catch(() => {})
+            .catch(() => null)
+          const cooldownSeconds = tempResult?.ttlSeconds || 300
 
-          if (dedicatedRateLimitMessage) {
-            return {
-              statusCode: 403,
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                error: 'upstream_rate_limited',
-                message: dedicatedRateLimitMessage
-              }),
-              accountId
-            }
+          // 所有 429 情况统一透传给下游，携带冷却剩余时间
+          return {
+            statusCode: 429,
+            headers: {
+              'Content-Type': 'application/json',
+              'Retry-After': String(cooldownSeconds)
+            },
+            body: response.body,
+            accountId
           }
 
           // 🔄 非专属账号429：尝试切换账号重试（最多1次，需开启自动重绑定）
@@ -2232,40 +2235,37 @@ class ClaudeRelayService {
               const rateLimitResetTimestamp = Number.isNaN(parsedResetTimestamp)
                 ? null
                 : parsedResetTimestamp
-              await unifiedClaudeScheduler.markAccountRateLimited(
-                accountId,
-                accountType,
-                sessionHash,
-                rateLimitResetTimestamp
-              )
-              await upstreamErrorHelper
+              logger.warn(`🚫 [Stream] Rate limit detected for account ${accountId}, status 429`)
+              // 仅在上游返回了准确重置时间时才做长期封锁
+              if (rateLimitResetTimestamp !== null) {
+                await unifiedClaudeScheduler.markAccountRateLimited(
+                  accountId,
+                  accountType,
+                  sessionHash,
+                  rateLimitResetTimestamp
+                )
+              }
+              // 始终执行短期冷却（300s），获取实际 TTL 用于 Retry-After
+              const tempResult = await upstreamErrorHelper
                 .markTempUnavailable(
                   accountId,
                   accountType,
                   429,
                   upstreamErrorHelper.parseRetryAfter(res.headers)
                 )
-                .catch(() => {})
-              logger.warn(`🚫 [Stream] Rate limit detected for account ${accountId}, status 429`)
+                .catch(() => null)
+              const cooldownSeconds = tempResult?.ttlSeconds || 300
 
-              if (isDedicatedOfficialAccount) {
-                const limitMessage = this._buildStandardRateLimitMessage(
-                  rateLimitResetTimestamp || account?.rateLimitEndAt
-                )
-                if (!responseStream.headersSent) {
-                  responseStream.status(403)
-                  responseStream.setHeader('Content-Type', 'application/json')
-                }
-                responseStream.write(
-                  JSON.stringify({
-                    error: 'upstream_rate_limited',
-                    message: limitMessage
-                  })
-                )
-                responseStream.end()
-                resolve()
-                return
+              // 所有流式 429 统一透传给下游，携带冷却剩余时间
+              if (!responseStream.headersSent) {
+                responseStream.writeHead(429, {
+                  'Content-Type': 'application/json',
+                  'Retry-After': String(cooldownSeconds)
+                })
               }
+              responseStream.end(errorBody429)
+              resolve()
+              return
             }
 
             // 🔄 非专属账户429：尝试切换账号重试（需开启自动重绑定）

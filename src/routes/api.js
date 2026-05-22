@@ -380,11 +380,22 @@ async function handleMessagesRequest(req, res) {
               }
             }
           } else {
-            // 未开启自动重绑定：拒绝请求，等待绑定账号恢复
-            return res.status(403).json({
+            // 未开启自动重绑定：绑定账户在冷却期，透传 429 并携带剩余冷却时间
+            const upstreamErrorHelper = require('../utils/upstreamErrorHelper')
+            const retryAfterSecs = await upstreamErrorHelper
+              .getTempUnavailableRemainingSeconds(
+                selection.rebind.previousAccountId,
+                'claude-official'
+              )
+              .catch(() => null)
+            if (retryAfterSecs) {
+              res.set('Retry-After', String(retryAfterSecs))
+            }
+            return res.status(429).json({
+              type: 'error',
               error: {
-                type: 'session_binding_error',
-                message: `绑定账户 ${selection.rebind.previousAccountId} 暂时不可用，请稍后重试`
+                type: 'rate_limit_error',
+                message: `绑定账户冷却中，请 ${retryAfterSecs || 300} 秒后重试`
               }
             })
           }
@@ -1087,11 +1098,22 @@ async function handleMessagesRequest(req, res) {
               }
             }
           } else {
-            // 未开启自动重绑定：拒绝请求，等待绑定账号恢复
-            return res.status(403).json({
+            // 未开启自动重绑定：绑定账户在冷却期，透传 429 并携带剩余冷却时间
+            const upstreamErrorHelper = require('../utils/upstreamErrorHelper')
+            const retryAfterSecs = await upstreamErrorHelper
+              .getTempUnavailableRemainingSeconds(
+                selection.rebind.previousAccountId,
+                'claude-official'
+              )
+              .catch(() => null)
+            if (retryAfterSecs) {
+              res.set('Retry-After', String(retryAfterSecs))
+            }
+            return res.status(429).json({
+              type: 'error',
               error: {
-                type: 'session_binding_error',
-                message: `绑定账户 ${selection.rebind.previousAccountId} 暂时不可用，请稍后重试`
+                type: 'rate_limit_error',
+                message: `绑定账户冷却中，请 ${retryAfterSecs || 300} 秒后重试`
               }
             })
           }
@@ -1470,6 +1492,25 @@ async function handleMessagesRequest(req, res) {
       ) {
         statusCode = 502
         errorType = 'Upstream hostname resolution failed'
+      } else if (handledError.message.includes('No available Claude accounts')) {
+        // 所有账户均处于冷却期时，返回 429 + 最短剩余冷却时间
+        const upstreamErrorHelper = require('../utils/upstreamErrorHelper')
+        const minTtl = await upstreamErrorHelper
+          .getMinTempUnavailableSeconds('claude-official')
+          .catch(() => null)
+        if (minTtl !== null) {
+          if (minTtl) {
+            res.set('Retry-After', String(minTtl))
+          }
+          return res.status(429).json({
+            type: 'error',
+            error: {
+              type: 'rate_limit_error',
+              message: `所有账户冷却中，请 ${minTtl} 秒后重试`
+            }
+          })
+        }
+        // 池耗尽但非全部 rate limit 导致，走 500 兜底
       }
 
       return res.status(statusCode).json({
