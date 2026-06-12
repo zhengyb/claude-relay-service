@@ -1389,6 +1389,21 @@
                       <span class="ml-1">定时</span>
                     </button>
                     <button
+                      v-if="canRefreshToken(account)"
+                      class="rounded bg-teal-100 px-2.5 py-1 text-xs font-medium text-teal-700 transition-colors hover:bg-teal-200 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-teal-900/40 dark:text-teal-300 dark:hover:bg-teal-800/50"
+                      :disabled="account.isRefreshingToken"
+                      title="手动刷新 OAuth 令牌"
+                      @click="refreshClaudeAccountToken(account)"
+                    >
+                      <i
+                        :class="[
+                          'fas',
+                          account.isRefreshingToken ? 'fa-spinner animate-spin' : 'fa-key'
+                        ]"
+                      />
+                      <span class="ml-1">刷新令牌</span>
+                    </button>
+                    <button
                       class="rounded bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-200"
                       title="编辑账户"
                       @click="editAccount(account)"
@@ -1918,6 +1933,18 @@
             >
               <i class="fas fa-clock" />
               定时
+            </button>
+
+            <button
+              v-if="canRefreshToken(account)"
+              class="flex flex-1 items-center justify-center gap-1 rounded-lg bg-teal-50 px-3 py-2 text-xs text-teal-600 transition-colors hover:bg-teal-100 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-teal-900/40 dark:text-teal-300 dark:hover:bg-teal-800/50"
+              :disabled="account.isRefreshingToken"
+              @click="refreshClaudeAccountToken(account)"
+            >
+              <i
+                :class="['fas', account.isRefreshingToken ? 'fa-spinner animate-spin' : 'fa-key']"
+              />
+              刷新令牌
             </button>
 
             <button
@@ -2656,6 +2683,13 @@ const showResetButton = (account) => {
   return supportedPlatforms.includes(account.platform) && isAccountRoutingBlocked(account)
 }
 
+// 是否显示「刷新令牌」按钮：仅 Claude OAuth 账户（Setup Token 无 refreshToken，不支持刷新）
+const canRefreshToken = (account) => {
+  if (!account) return false
+  const isClaudeOAuth = account.platform === 'claude' || account.platform === 'claude-oauth'
+  return isClaudeOAuth && getClaudeAuthType(account) === 'OAuth'
+}
+
 // 获取账户操作菜单项（用于小屏下拉菜单）
 const getAccountActions = (account) => {
   const actions = []
@@ -2706,6 +2740,17 @@ const getAccountActions = (account) => {
       icon: 'fa-clock',
       color: 'amber',
       handler: () => openScheduledTestModal(account)
+    })
+  }
+
+  // 刷新令牌（仅 Claude OAuth 账户）
+  if (canRefreshToken(account)) {
+    actions.push({
+      key: 'refresh-token',
+      label: '刷新令牌',
+      icon: 'fa-key',
+      color: 'teal',
+      handler: () => refreshClaudeAccountToken(account)
     })
   }
 
@@ -4213,6 +4258,35 @@ const resetAccountStatus = async (account) => {
   } catch (error) {
     showToast(error.message || '状态重置失败', 'error')
     account.isResetting = false
+  }
+}
+
+// 手动刷新 Claude OAuth 账户令牌
+const refreshClaudeAccountToken = async (account) => {
+  if (account.isRefreshingToken) return
+
+  const confirmed = await showConfirm(
+    '刷新账户令牌',
+    `确定要为账户「${account.name}」手动刷新 OAuth 令牌吗？将使用已保存的 Refresh Token 重新获取 Access Token。`,
+    '确定刷新',
+    '取消'
+  )
+
+  if (!confirmed) return
+
+  try {
+    account.isRefreshingToken = true
+    const data = await httpApis.refreshClaudeAccountApi(account.id)
+    if (data.success) {
+      showToast('账户令牌刷新成功', 'success')
+      loadAccounts(true)
+    } else {
+      showToast(data.message || '令牌刷新失败', 'error')
+    }
+  } catch (error) {
+    showToast(error.message || '令牌刷新失败', 'error')
+  } finally {
+    account.isRefreshingToken = false
   }
 }
 
