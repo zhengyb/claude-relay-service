@@ -476,7 +476,8 @@ class RateLimitCleanupService {
         result.checked++
         try {
           await claudeAccountService.refreshAccountToken(account.id, {
-            skipIfValidForMs: refreshAheadMs
+            skipIfValidForMs: refreshAheadMs,
+            reason: 'proactive'
           })
           result.refreshed++
           logger.info(`🔄 Proactively refreshed token: ${account.name} (${account.id})`)

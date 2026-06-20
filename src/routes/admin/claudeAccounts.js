@@ -906,7 +906,7 @@ router.post('/claude-accounts/:accountId/refresh', authenticateAdmin, async (req
   try {
     const { accountId } = req.params
 
-    const result = await claudeAccountService.refreshAccountToken(accountId)
+    const result = await claudeAccountService.refreshAccountToken(accountId, { reason: 'manual' })
 
     logger.success(`🔄 Admin refreshed token for Claude account: ${accountId}`)
     return res.json({ success: true, data: result })

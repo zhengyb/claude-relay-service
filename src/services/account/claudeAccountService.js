@@ -273,7 +273,8 @@ class ClaudeAccountService {
   async refreshAccountToken(accountId, options = {}) {
     // 🔒 single-flight：先获取刷新锁，再读取 refresh token，避免使用已被其他流程
     // 轮换掉的旧 token —— platform.claude.com 的 token 重用检测会因此使整条 token 链失效
-    const { skipIfValidForMs = null } = options
+    // reason 用于在 token-refresh.log 中区分触发来源（on_demand / proactive / manual）
+    const { skipIfValidForMs = null, reason = 'manual_refresh' } = options
     let lockAcquired = false
 
     try {
@@ -326,6 +327,8 @@ class ClaudeAccountService {
             logger.info(
               `✅ Token already fresh for account: ${accountData.name} (${accountId}), reusing without refresh`
             )
+            // 结构化记录到 token-refresh.log，便于追踪 single-flight 复用
+            logRefreshSkipped(accountId, accountData.name, 'claude', `already_fresh:${reason}`)
             return {
               success: true,
               accessToken: reuseToken,
@@ -342,7 +345,7 @@ class ClaudeAccountService {
       }
 
       // 记录开始刷新
-      logRefreshStart(accountId, accountData.name, 'claude', 'manual_refresh')
+      logRefreshStart(accountId, accountData.name, 'claude', reason)
       logger.info(`🔄 Starting token refresh for account: ${accountData.name} (${accountId})`)
 
       // 创建代理agent
@@ -550,7 +553,8 @@ class ClaudeAccountService {
         try {
           // single-flight：若并发流程已在 60 秒阈值内刷新过，复用其结果而非重复刷新
           const refreshResult = await this.refreshAccountToken(accountId, {
-            skipIfValidForMs: 60000
+            skipIfValidForMs: 60000,
+            reason: 'on_demand'
           })
           return refreshResult.accessToken
         } catch (refreshError) {
