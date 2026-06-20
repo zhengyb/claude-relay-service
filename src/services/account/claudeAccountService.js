@@ -270,20 +270,17 @@ class ClaudeAccountService {
   }
 
   // 🔄 刷新Claude账户token
-  async refreshAccountToken(accountId) {
+  async refreshAccountToken(accountId, options = {}) {
+    // 🔒 single-flight：先获取刷新锁，再读取 refresh token，避免使用已被其他流程
+    // 轮换掉的旧 token —— platform.claude.com 的 token 重用检测会因此使整条 token 链失效
+    const { skipIfValidForMs = null } = options
     let lockAcquired = false
 
     try {
-      const accountData = await redis.getClaudeAccount(accountId)
+      let accountData = await redis.getClaudeAccount(accountId)
 
       if (!accountData || Object.keys(accountData).length === 0) {
         throw new Error('Account not found')
-      }
-
-      const refreshToken = this._decryptSensitiveData(accountData.refreshToken)
-
-      if (!refreshToken) {
-        throw new Error('No refresh token available - manual token update required')
       }
 
       // 尝试获取分布式锁
@@ -311,6 +308,37 @@ class ClaudeAccountService {
         }
 
         throw new Error('Token refresh in progress by another process')
+      }
+
+      // ✅ 已持有刷新锁：重新读取账户数据，确保使用的是最新的 refresh token
+      // （等待/获取锁期间可能已有其他流程完成刷新并轮换了 token）
+      accountData = await redis.getClaudeAccount(accountId)
+      if (!accountData || Object.keys(accountData).length === 0) {
+        throw new Error('Account not found')
+      }
+
+      // 双重检查：若 token 已被其他流程刷新且对本次调用仍足够新鲜，直接复用，跳过网络刷新
+      if (skipIfValidForMs !== null) {
+        const currentExpiresAt = parseInt(accountData.expiresAt)
+        if (currentExpiresAt && Date.now() < currentExpiresAt - skipIfValidForMs) {
+          const reuseToken = this._decryptSensitiveData(accountData.accessToken)
+          if (reuseToken) {
+            logger.info(
+              `✅ Token already fresh for account: ${accountData.name} (${accountId}), reusing without refresh`
+            )
+            return {
+              success: true,
+              accessToken: reuseToken,
+              expiresAt: accountData.expiresAt
+            }
+          }
+        }
+      }
+
+      const refreshToken = this._decryptSensitiveData(accountData.refreshToken)
+
+      if (!refreshToken) {
+        throw new Error('No refresh token available - manual token update required')
       }
 
       // 记录开始刷新
@@ -520,7 +548,10 @@ class ClaudeAccountService {
       if (isExpired) {
         logger.info(`🔄 Token expired/expiring for account ${accountId}, attempting refresh...`)
         try {
-          const refreshResult = await this.refreshAccountToken(accountId)
+          // single-flight：若并发流程已在 60 秒阈值内刷新过，复用其结果而非重复刷新
+          const refreshResult = await this.refreshAccountToken(accountId, {
+            skipIfValidForMs: 60000
+          })
           return refreshResult.accessToken
         } catch (refreshError) {
           logger.warn(`⚠️ Token refresh failed for account ${accountId}: ${refreshError.message}`)

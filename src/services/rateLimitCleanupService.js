@@ -421,18 +421,22 @@ class RateLimitCleanupService {
   }
 
   /**
-   * 主动刷新 Claude 账户 Token（防止等待重置期间 Token 过期）
-   * 仅对因限流/配额限制而等待重置的账户执行刷新：
-   * - 429 限流账户（rateLimitAutoStopped=true）
-   * - 5小时限制自动停止账户（fiveHourAutoStopped=true）
-   * 不处理错误状态账户（error/temp_error）
+   * 主动刷新 Claude 账户 Token（保持 Token 链常活，防止空闲账户的 refresh token 过期失效）
+   *
+   * platform.claude.com 的 refresh token 会轮换且空闲后失效；Claude 仅在请求时按需刷新，
+   * 长时间无流量的账户其 token 链会自然老化死亡（返回 invalid_grant，需重新授权）。
+   * 因此对所有「活跃且非错误状态」的 OAuth 账户在临近过期前主动刷新，使链条持续推进。
+   *
+   * 跳过：未激活、无 refreshToken、错误状态（error/temp_error，token 可能已失效）、
+   * 无有效过期时间（手动设置的长期 token）的账户。
    */
   async proactiveRefreshClaudeTokens(result) {
     try {
       const redis = require('../models/redis')
       const accounts = await redis.getAllClaudeAccounts()
       const now = Date.now()
-      const refreshAheadMs = 30 * 60 * 1000 // 提前30分钟刷新
+      // 提前 2 小时刷新（access token 约 8h，刷新周期≈6h，安全低于观测到的 token 链失效下限）
+      const refreshAheadMs = 2 * 60 * 60 * 1000
       const recentRefreshMs = 5 * 60 * 1000 // 5分钟内刷新过则跳过
 
       for (const account of accounts) {
@@ -446,32 +450,34 @@ class RateLimitCleanupService {
           continue
         }
 
-        // 3. 【优化】仅处理因限流/配额限制而等待重置的账户
-        // 正常调度的账户会在请求时自动刷新，无需主动刷新
-        // 错误状态账户的 Token 可能已失效，刷新也会失败
-        const isWaitingForReset =
-          account.rateLimitAutoStopped === 'true' || // 429 限流
-          account.fiveHourAutoStopped === 'true' // 5小时限制自动停止
-        if (!isWaitingForReset) {
+        // 3. 跳过错误状态账户：其 refresh token 可能已失效，反复刷新只会徒增噪音
+        if (account.status === 'error' || account.status === 'temp_error') {
           continue
         }
 
-        // 4. 【优化】如果最近 5 分钟内已刷新，跳过（避免重复刷新）
+        // 4. 如果最近 5 分钟内已刷新，跳过（避免重复刷新）
         const lastRefreshAt = account.lastRefreshAt ? new Date(account.lastRefreshAt).getTime() : 0
         if (now - lastRefreshAt < recentRefreshMs) {
           continue
         }
 
-        // 5. 检查 Token 是否即将过期（30分钟内）
+        // 5. 无有效过期时间（如手动设置的长期 token）无法判断，跳过
         const expiresAt = parseInt(account.expiresAt)
-        if (expiresAt && now < expiresAt - refreshAheadMs) {
+        if (!expiresAt) {
           continue
         }
 
-        // 符合条件，执行刷新
+        // 6. 仅在临近过期（refreshAheadMs 内）时刷新
+        if (now < expiresAt - refreshAheadMs) {
+          continue
+        }
+
+        // 符合条件，执行刷新（single-flight：若按需刷新已在阈值内完成则自动复用）
         result.checked++
         try {
-          await claudeAccountService.refreshAccountToken(account.id)
+          await claudeAccountService.refreshAccountToken(account.id, {
+            skipIfValidForMs: refreshAheadMs
+          })
           result.refreshed++
           logger.info(`🔄 Proactively refreshed token: ${account.name} (${account.id})`)
         } catch (error) {
