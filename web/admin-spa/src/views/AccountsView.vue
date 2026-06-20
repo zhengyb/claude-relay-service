@@ -1404,6 +1404,15 @@
                       <span class="ml-1">刷新令牌</span>
                     </button>
                     <button
+                      v-if="canReauthOAuth(account)"
+                      class="rounded bg-indigo-100 px-2.5 py-1 text-xs font-medium text-indigo-700 transition-colors hover:bg-indigo-200 dark:bg-indigo-900/40 dark:text-indigo-300 dark:hover:bg-indigo-800/50"
+                      title="重新 OAuth 授权"
+                      @click="openReauthModal(account)"
+                    >
+                      <i class="fas fa-link" />
+                      <span class="ml-1">重新授权</span>
+                    </button>
+                    <button
                       class="rounded bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-200"
                       title="编辑账户"
                       @click="editAccount(account)"
@@ -1948,6 +1957,15 @@
             </button>
 
             <button
+              v-if="canReauthOAuth(account)"
+              class="flex flex-1 items-center justify-center gap-1 rounded-lg bg-indigo-50 px-3 py-2 text-xs text-indigo-600 transition-colors hover:bg-indigo-100 dark:bg-indigo-900/40 dark:text-indigo-300 dark:hover:bg-indigo-800/50"
+              @click="openReauthModal(account)"
+            >
+              <i class="fas fa-link" />
+              重新授权
+            </button>
+
+            <button
               class="flex-1 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600 transition-colors hover:bg-gray-100"
               @click="editAccount(account)"
             >
@@ -2120,6 +2138,14 @@
       :show="!!editingExpiryAccount"
       @close="closeAccountExpiryEdit"
       @save="handleSaveAccountExpiry"
+    />
+
+    <!-- 重新 OAuth 授权弹窗 -->
+    <ClaudeReauthModal
+      :account="reauthAccount || { id: null, name: '', proxy: null }"
+      :show="!!reauthAccount"
+      @close="closeReauthModal"
+      @success="handleReauthSuccess"
     />
 
     <!-- 账户测试弹窗 -->
@@ -2304,6 +2330,7 @@ import CcrAccountForm from '@/components/accounts/CcrAccountForm.vue'
 import AccountUsageDetailModal from '@/components/accounts/AccountUsageDetailModal.vue'
 import AccountErrorHistoryModal from '@/components/accounts/AccountErrorHistoryModal.vue'
 import AccountExpiryEditModal from '@/components/accounts/AccountExpiryEditModal.vue'
+import ClaudeReauthModal from '@/components/accounts/ClaudeReauthModal.vue'
 import UnifiedTestModal from '@/components/common/UnifiedTestModal.vue'
 import AccountScheduledTestModal from '@/components/accounts/AccountScheduledTestModal.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
@@ -2443,6 +2470,9 @@ const supportedUsagePlatforms = [
 // 过期时间编辑弹窗状态
 const editingExpiryAccount = ref(null)
 const expiryEditModalRef = ref(null)
+
+// 重新 OAuth 授权弹窗状态
+const reauthAccount = ref(null)
 
 // 测试弹窗状态
 const showAccountTestModal = ref(false)
@@ -2690,6 +2720,13 @@ const canRefreshToken = (account) => {
   return isClaudeOAuth && getClaudeAuthType(account) === 'OAuth'
 }
 
+// 是否显示「重新 OAuth 授权」按钮：仅 Claude OAuth 账户（排除 Setup Token）
+const canReauthOAuth = (account) => {
+  if (!account) return false
+  const isClaudeOAuth = account.platform === 'claude' || account.platform === 'claude-oauth'
+  return isClaudeOAuth && getClaudeAuthType(account) === 'OAuth'
+}
+
 // 获取账户操作菜单项（用于小屏下拉菜单）
 const getAccountActions = (account) => {
   const actions = []
@@ -2751,6 +2788,17 @@ const getAccountActions = (account) => {
       icon: 'fa-key',
       color: 'teal',
       handler: () => refreshClaudeAccountToken(account)
+    })
+  }
+
+  // 重新 OAuth 授权（仅 Claude OAuth 账户）
+  if (canReauthOAuth(account)) {
+    actions.push({
+      key: 'reauth-oauth',
+      label: '重新授权',
+      icon: 'fa-link',
+      color: 'indigo',
+      handler: () => openReauthModal(account)
     })
   }
 
@@ -4288,6 +4336,21 @@ const refreshClaudeAccountToken = async (account) => {
   } finally {
     account.isRefreshingToken = false
   }
+}
+
+// 打开「重新 OAuth 授权」弹窗
+const openReauthModal = (account) => {
+  reauthAccount.value = account
+}
+
+// 关闭「重新 OAuth 授权」弹窗
+const closeReauthModal = () => {
+  reauthAccount.value = null
+}
+
+// 重新授权成功后刷新账户列表
+const handleReauthSuccess = () => {
+  loadAccounts(true)
 }
 
 // 切换调度状态
