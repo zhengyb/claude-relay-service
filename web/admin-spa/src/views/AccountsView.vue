@@ -4399,7 +4399,16 @@ const handleEditSuccess = () => {
 
 // 获取 Claude 账号的添加方式
 const getClaudeAuthType = (account) => {
-  // 基于 lastRefreshAt 判断：如果为空说明是 Setup Token（不能刷新），否则是 OAuth
+  // 优先使用后端基于 scopes 计算的 authType（'oauth' / 'setup-token'），
+  // 这样新建账户在首次刷新前也能正确识别（lastRefreshAt 此时仍为空）
+  if (account.authType) {
+    return account.authType === 'oauth' ? 'OAuth' : 'Setup'
+  }
+  // 兼容缺少 authType 的旧数据：scopes 含 user:profile 即为标准 OAuth
+  if (Array.isArray(account.scopes) && account.scopes.includes('user:profile')) {
+    return 'OAuth'
+  }
+  // 最后回退到 lastRefreshAt 判断
   if (!account.lastRefreshAt || account.lastRefreshAt === '') {
     return 'Setup' // 缩短显示文本
   }
